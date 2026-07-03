@@ -2,7 +2,7 @@
 
 An institutional-grade, full-stack options strategy builder tailored specifically for the Indian Equity Derivatives Market (NSE). Built with a blazing fast FastAPI Python backend and a highly polished React + Vite frontend, this application provides sophisticated options analysis with live market data.
 
-![Elite Option Strategy Builder](https://github.com/piyushk20/option-strategy-builder/blob/master/frontend/public/favicon.svg?raw=true)
+![Elite Option Strategy Builder Dashboard](https://github.com/piyushk20/option-strategy-builder/blob/master/screenshot.png?raw=true)
 
 ## 🚀 Key Features
 
