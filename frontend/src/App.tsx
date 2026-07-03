@@ -121,6 +121,35 @@ const AVAILABLE_SYMBOLS = [
   { value: 'WIPRO', label: 'WIPRO (Wipro Ltd)', isIndex: false }
 ];
 
+// Official NSE F&O lot sizes (as of July 2025)
+const LOT_SIZES: Record<string, number> = {
+  NIFTY: 25,
+  BANKNIFTY: 15,
+  FINNIFTY: 25,
+  MIDCPNIFTY: 50,
+  RELIANCE: 250,
+  TCS: 175,
+  INFY: 400,
+  HDFCBANK: 550,
+  ICICIBANK: 700,
+  SBIN: 1500,
+  ITC: 1600,
+  BHARTIARTL: 950,
+  LT: 300,
+  AXISBANK: 625,
+  KOTAKBANK: 400,
+  TATAMOTORS: 1425,
+  TATASTEEL: 5500,
+  BAJFINANCE: 125,
+  MARUTI: 50,
+  SUNPHARMA: 700,
+  HCLTECH: 700,
+  'M&M': 350,
+  WIPRO: 1500
+};
+
+const getLotSize = (sym: string): number => LOT_SIZES[sym] ?? 1;
+
 export default function App() {
   // App settings & state
   const [symbol, setSymbol] = useState<string>('NIFTY');
@@ -297,12 +326,12 @@ export default function App() {
     if (strategy.name.includes("Long Call")) {
       const strike = optionChain?.atm_strike || 24250;
       const row = optionChain?.strikes.find(s => s.strike === strike);
-      addLeg({ type: 'call', action: 'buy', strike, premium: row?.CE.ltp || 120, quantity: 50 });
+      addLeg({ type: 'call', action: 'buy', strike, premium: row?.CE.ltp || 120, quantity: getLotSize(symbol) });
     } 
     else if (strategy.name.includes("Long Put")) {
       const strike = optionChain?.atm_strike || 24250;
       const row = optionChain?.strikes.find(s => s.strike === strike);
-      addLeg({ type: 'put', action: 'buy', strike, premium: row?.PE.ltp || 100, quantity: 50 });
+      addLeg({ type: 'put', action: 'buy', strike, premium: row?.PE.ltp || 100, quantity: getLotSize(symbol) });
     }
     else if (strategy.name.includes("Debit Spread")) {
       const isBull = strategy.name.includes("Bull Call");
@@ -318,14 +347,14 @@ export default function App() {
         action: 'buy', 
         strike: buyK, 
         premium: isBull ? (bRow?.CE.ltp || 140) : (bRow?.PE.ltp || 140), 
-        quantity: 50 
+        quantity: getLotSize(symbol) 
       });
       addLeg({ 
         type: isBull ? 'call' : 'put', 
         action: 'sell', 
         strike: sellK, 
         premium: isBull ? (sRow?.CE.ltp || 70) : (sRow?.PE.ltp || 70), 
-        quantity: 50 
+        quantity: getLotSize(symbol) 
       });
     }
     else if (strategy.name.includes("Credit Spread")) {
@@ -342,14 +371,14 @@ export default function App() {
         action: 'sell', 
         strike: sellK, 
         premium: isBull ? (sRow?.PE.ltp || 80) : (sRow?.CE.ltp || 80), 
-        quantity: 50 
+        quantity: getLotSize(symbol) 
       });
       addLeg({ 
         type: isBull ? 'put' : 'call', 
         action: 'buy', 
         strike: buyK, 
         premium: isBull ? (bRow?.PE.ltp || 35) : (bRow?.CE.ltp || 35), 
-        quantity: 50 
+        quantity: getLotSize(symbol) 
       });
     }
     else if (strategy.name.includes("Iron Condor")) {
@@ -365,16 +394,16 @@ export default function App() {
       const ceSRow = optionChain?.strikes.find(s => s.strike === ceSell);
       const ceBRow = optionChain?.strikes.find(s => s.strike === ceBuy);
       
-      addLeg({ type: 'put', action: 'buy', strike: peBuy, premium: peBRow?.PE.ltp || 10, quantity: 50 });
-      addLeg({ type: 'put', action: 'sell', strike: peSell, premium: peSRow?.PE.ltp || 28, quantity: 50 });
-      addLeg({ type: 'call', action: 'sell', strike: ceSell, premium: ceSRow?.CE.ltp || 28, quantity: 50 });
-      addLeg({ type: 'call', action: 'buy', strike: ceBuy, premium: ceBRow?.CE.ltp || 10, quantity: 50 });
+      addLeg({ type: 'put', action: 'buy', strike: peBuy, premium: peBRow?.PE.ltp || 10, quantity: getLotSize(symbol) });
+      addLeg({ type: 'put', action: 'sell', strike: peSell, premium: peSRow?.PE.ltp || 28, quantity: getLotSize(symbol) });
+      addLeg({ type: 'call', action: 'sell', strike: ceSell, premium: ceSRow?.CE.ltp || 28, quantity: getLotSize(symbol) });
+      addLeg({ type: 'call', action: 'buy', strike: ceBuy, premium: ceBRow?.CE.ltp || 10, quantity: getLotSize(symbol) });
     }
     else if (strategy.name.includes("Short Straddle")) {
       const strike = optionChain?.atm_strike || 24250;
       const row = optionChain?.strikes.find(s => s.strike === strike);
-      addLeg({ type: 'call', action: 'sell', strike, premium: row?.CE.ltp || 95, quantity: 50 });
-      addLeg({ type: 'put', action: 'sell', strike, premium: row?.PE.ltp || 85, quantity: 50 });
+      addLeg({ type: 'call', action: 'sell', strike, premium: row?.CE.ltp || 95, quantity: getLotSize(symbol) });
+      addLeg({ type: 'put', action: 'sell', strike, premium: row?.PE.ltp || 85, quantity: getLotSize(symbol) });
     }
     else if (strategy.name.includes("Ratio Backspread")) {
       const isCall = strategy.name.includes("Call");
@@ -391,14 +420,14 @@ export default function App() {
         action: 'sell', 
         strike: sellK, 
         premium: isCall ? (sRow?.CE.ltp || 120) : (sRow?.PE.ltp || 100), 
-        quantity: 50 
+        quantity: getLotSize(symbol) 
       });
       addLeg({ 
         type: isCall ? 'call' : 'put', 
         action: 'buy', 
         strike: buyK, 
         premium: isCall ? (bRow?.CE.ltp || 55) : (bRow?.PE.ltp || 50), 
-        quantity: 100 
+        quantity: getLotSize(symbol) 
       });
     }
   };
@@ -428,33 +457,6 @@ export default function App() {
     return { minSpot, maxSpot, yMin, yMax };
   }, [payoffCurve]);
 
-  // F&O Lot Sizes
-  const LOT_SIZES: Record<string, number> = {
-    NIFTY: 25,
-    BANKNIFTY: 15,
-    FINNIFTY: 25,
-    MIDCPNIFTY: 50,
-    RELIANCE: 250,
-    TCS: 175,
-    INFY: 400,
-    HDFCBANK: 550,
-    ICICIBANK: 700,
-    SBIN: 1500,
-    ITC: 1600,
-    BHARTIARTL: 950,
-    LT: 300,
-    AXISBANK: 625,
-    KOTAKBANK: 400,
-    TATAMOTORS: 1425,
-    TATASTEEL: 5500,
-    BAJFINANCE: 125,
-    MARUTI: 50,
-    SUNPHARMA: 700,
-    HCLTECH: 700,
-    'M&M': 350,
-    WIPRO: 1500
-  };
-
   const { maxProfit, maxLoss, lotSize, lotCount, maxProfitPerLot, maxLossPerLot } = useMemo(() => {
     if (payoffCurve.length === 0 || legs.length === 0) {
       return { maxProfit: 0, maxLoss: 0, lotSize: 1, lotCount: 1, maxProfitPerLot: 0, maxLossPerLot: 0 };
@@ -465,46 +467,34 @@ export default function App() {
 
     // Boundary check for uncapped profits/losses
     const firstPoint = payoffCurve[0];
-    const lastPoint = payoffCurve[payoffCurve.length - 1];
+    const lastPoint  = payoffCurve[payoffCurve.length - 1];
 
     let isUncappedProfit = false;
-    let isUncappedLoss = false;
+    let isUncappedLoss   = false;
 
-    if (lastPoint.expiration_pnl > maxP * 0.95 && legs.some(l => l.action === 'buy' && l.type === 'call')) {
-      isUncappedProfit = true;
-    }
-    if (firstPoint.expiration_pnl > maxP * 0.95 && legs.some(l => l.action === 'buy' && l.type === 'put')) {
-      isUncappedProfit = true;
-    }
-    if (lastPoint.expiration_pnl < minP * 1.05 && legs.some(l => l.action === 'sell' && l.type === 'call')) {
-      isUncappedLoss = true;
-    }
-    if (firstPoint.expiration_pnl < minP * 1.05 && legs.some(l => l.action === 'sell' && l.type === 'put')) {
-      isUncappedLoss = true;
-    }
+    if (lastPoint.expiration_pnl > maxP * 0.95 && legs.some(l => l.action === 'buy' && l.type === 'call')) isUncappedProfit = true;
+    if (firstPoint.expiration_pnl > maxP * 0.95 && legs.some(l => l.action === 'buy' && l.type === 'put'))  isUncappedProfit = true;
+    if (lastPoint.expiration_pnl < minP * 1.05 && legs.some(l => l.action === 'sell' && l.type === 'call')) isUncappedLoss = true;
+    if (firstPoint.expiration_pnl < minP * 1.05 && legs.some(l => l.action === 'sell' && l.type === 'put')) isUncappedLoss = true;
 
-    const currentLotSize = LOT_SIZES[symbol] || 1;
+    // Since all addLeg calls now use getLotSize(symbol), each leg quantity = 1 lot.
+    // Payoff = (premium_diff × lotSize) — that IS the per-lot value already.
+    // numLots counts how many lots the largest leg represents (usually 1).
+    const currentLotSize = getLotSize(symbol);
+    const maxLegQty      = Math.max(...legs.map(l => l.quantity), 1);
+    const numLots        = Math.max(1, Math.round(maxLegQty / currentLotSize));
 
-    // Use the dominant (max qty) leg as the reference for normalisation.
-    // The backend P&L is already scaled by each leg's quantity, so we
-    // normalise back to per-unit, then scale to exactly 1 lot.
-    const maxLegQty = Math.max(...legs.map(l => l.quantity), 1);
-    const numLots   = Math.max(1, Math.round(maxLegQty / currentLotSize));
-
-    // Per-1-lot P&L = (total P&L / total units in position) × lot size
-    // Equivalent to: total P&L × (lotSize / maxLegQty)
-    const scaleFactor = currentLotSize / maxLegQty;   // e.g. 25/50 = 0.5 for NIFTY 2 lots
-
+    // Per-lot = total ÷ numLots  (if user manually typed a qty > 1 lot, this still works)
     const finalMaxProfit = isUncappedProfit ? Infinity : maxP;
     const finalMaxLoss   = isUncappedLoss   ? -Infinity : minP;
 
     return {
-      maxProfit: finalMaxProfit,
-      maxLoss:   finalMaxLoss,
-      lotSize:   currentLotSize,
-      lotCount:  numLots,
-      maxProfitPerLot: finalMaxProfit === Infinity ? Infinity : finalMaxProfit * scaleFactor,
-      maxLossPerLot:   finalMaxLoss   === -Infinity ? -Infinity : finalMaxLoss * scaleFactor
+      maxProfit:       finalMaxProfit,
+      maxLoss:         finalMaxLoss,
+      lotSize:         currentLotSize,
+      lotCount:        numLots,
+      maxProfitPerLot: finalMaxProfit === Infinity  ? Infinity  : finalMaxProfit / numLots,
+      maxLossPerLot:   finalMaxLoss   === -Infinity ? -Infinity : finalMaxLoss   / numLots
     };
   }, [payoffCurve, legs, symbol]);
 
@@ -1024,7 +1014,7 @@ export default function App() {
 
             <button 
               className="outline" 
-              onClick={() => addLeg({ type: 'call', action: 'buy', strike: optionChain?.atm_strike || 24000, premium: 50.0, quantity: 50 })}
+              onClick={() => addLeg({ type: 'call', action: 'buy', strike: optionChain?.atm_strike || 24000, premium: 50.0, quantity: getLotSize(symbol) })}
               style={{ width: '100%', marginTop: '1rem' }}
             >
               <Plus size={16} /> Add Custom Position Leg
@@ -1258,12 +1248,12 @@ export default function App() {
                           </td>
                           <td>{(row.CE.iv).toFixed(1)}%</td>
                           <td>
-                            <span className="clickable-price bid" onClick={() => addLeg({ type: 'call', action: 'sell', strike: row.strike, premium: row.CE.bid || row.CE.ltp, quantity: 50 })}>
+                            <span className="clickable-price bid" onClick={() => addLeg({ type: 'call', action: 'sell', strike: row.strike, premium: row.CE.bid || row.CE.ltp, quantity: getLotSize(symbol) })}>>
                               {row.CE.bid || '-'}
                             </span>
                           </td>
                           <td>
-                            <span className="clickable-price ask" onClick={() => addLeg({ type: 'call', action: 'buy', strike: row.strike, premium: row.CE.ask || row.CE.ltp, quantity: 50 })}>
+                            <span className="clickable-price ask" onClick={() => addLeg({ type: 'call', action: 'buy', strike: row.strike, premium: row.CE.ask || row.CE.ltp, quantity: getLotSize(symbol) })}>>
                               {row.CE.ask || '-'}
                             </span>
                           </td>
@@ -1271,12 +1261,12 @@ export default function App() {
                           <td className="strike-cell">{row.strike}</td>
                           
                           <td>
-                            <span className="clickable-price ask" onClick={() => addLeg({ type: 'put', action: 'buy', strike: row.strike, premium: row.PE.bid || row.PE.ltp, quantity: 50 })}>
+                            <span className="clickable-price ask" onClick={() => addLeg({ type: 'put', action: 'buy', strike: row.strike, premium: row.PE.bid || row.PE.ltp, quantity: getLotSize(symbol) })}>>
                               {row.PE.bid || '-'}
                             </span>
                           </td>
                           <td>
-                            <span className="clickable-price bid" onClick={() => addLeg({ type: 'put', action: 'sell', strike: row.strike, premium: row.PE.ask || row.PE.ltp, quantity: 50 })}>
+                            <span className="clickable-price bid" onClick={() => addLeg({ type: 'put', action: 'sell', strike: row.strike, premium: row.PE.ask || row.PE.ltp, quantity: getLotSize(symbol) })}>>
                               {row.PE.ask || '-'}
                             </span>
                           </td>
