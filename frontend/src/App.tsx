@@ -428,6 +428,79 @@ export default function App() {
     return { minSpot, maxSpot, yMin, yMax };
   }, [payoffCurve]);
 
+  // F&O Lot Sizes
+  const LOT_SIZES: Record<string, number> = {
+    NIFTY: 25,
+    BANKNIFTY: 15,
+    FINNIFTY: 25,
+    MIDCPNIFTY: 50,
+    RELIANCE: 250,
+    TCS: 175,
+    INFY: 400,
+    HDFCBANK: 550,
+    ICICIBANK: 700,
+    SBIN: 1500,
+    ITC: 1600,
+    BHARTIARTL: 950,
+    LT: 300,
+    AXISBANK: 625,
+    KOTAKBANK: 400,
+    TATAMOTORS: 1425,
+    TATASTEEL: 5500,
+    BAJFINANCE: 125,
+    MARUTI: 50,
+    SUNPHARMA: 700,
+    HCLTECH: 700,
+    'M&M': 350,
+    WIPRO: 1500
+  };
+
+  const { maxProfit, maxLoss, lotSize, lotCount, maxProfitPerLot, maxLossPerLot } = useMemo(() => {
+    if (payoffCurve.length === 0) {
+      return { maxProfit: 0, maxLoss: 0, lotSize: 1, lotCount: 1, maxProfitPerLot: 0, maxLossPerLot: 0 };
+    }
+    const expPnls = payoffCurve.map(p => p.expiration_pnl);
+    const minP = Math.min(...expPnls);
+    const maxP = Math.max(...expPnls);
+    
+    // Boundary check for uncapped profits/losses
+    const firstPoint = payoffCurve[0];
+    const lastPoint = payoffCurve[payoffCurve.length - 1];
+    
+    let isUncappedProfit = false;
+    let isUncappedLoss = false;
+    
+    if (lastPoint.expiration_pnl > maxP * 0.95 && legs.some(l => l.action === 'buy' && l.type === 'call')) {
+      isUncappedProfit = true;
+    }
+    if (firstPoint.expiration_pnl > maxP * 0.95 && legs.some(l => l.action === 'buy' && l.type === 'put')) {
+      isUncappedProfit = true;
+    }
+    if (lastPoint.expiration_pnl < minP * 1.05 && legs.some(l => l.action === 'sell' && l.type === 'call')) {
+      isUncappedLoss = true;
+    }
+    if (firstPoint.expiration_pnl < minP * 1.05 && legs.some(l => l.action === 'sell' && l.type === 'put')) {
+      isUncappedLoss = true;
+    }
+    
+    const currentLotSize = LOT_SIZES[symbol] || 1;
+    // Base lot count calculated from the first option leg quantity
+    const baseLegQty = legs[0]?.quantity || currentLotSize;
+    const computedLotCount = Math.max(1, baseLegQty / currentLotSize);
+    
+    const finalMaxProfit = isUncappedProfit ? Infinity : maxP;
+    const finalMaxLoss = isUncappedLoss ? -Infinity : minP;
+    
+    return {
+      maxProfit: finalMaxProfit,
+      maxLoss: finalMaxLoss,
+      lotSize: currentLotSize,
+      lotCount: computedLotCount,
+      maxProfitPerLot: finalMaxProfit === Infinity ? Infinity : finalMaxProfit / computedLotCount,
+      maxLossPerLot: finalMaxLoss === -Infinity ? -Infinity : finalMaxLoss / computedLotCount
+    };
+  }, [payoffCurve, legs, symbol]);
+
   // Convert coordinate value to SVG pixel coordinate
   const getSvgX = (spot: number) => {
     if (!chartScale) return 0;
@@ -1053,6 +1126,46 @@ export default function App() {
                   )}
                 </div>
               </div>
+
+              {/* RISK PROFILE AND LOT QUANTITY ANALYSIS */}
+              {portfolioGreeks && (
+                <div className="card" style={{ background: 'rgba(16, 24, 39, 0.2)', borderColor: 'rgba(96, 165, 250, 0.1)' }}>
+                  <h3 className="card-title" style={{ color: '#60a5fa' }}>Strategy Risk & Payoff Metrics (Lot Size: {lotSize})</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
+                    {/* Max Profit */}
+                    <div style={{ background: 'rgba(16, 185, 129, 0.05)', padding: '1rem', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.15)', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>MAX PROFIT (TOTAL)</span>
+                      <strong style={{ fontSize: '1.4rem', color: '#10b981' }}>
+                        {maxProfit === Infinity ? 'Unlimited' : `Rs.${maxProfit.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`}
+                      </strong>
+                    </div>
+                    
+                    {/* Max Loss */}
+                    <div style={{ background: 'rgba(244, 63, 94, 0.05)', padding: '1rem', borderRadius: '12px', border: '1px solid rgba(244, 63, 94, 0.15)', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>MAX LOSS (TOTAL)</span>
+                      <strong style={{ fontSize: '1.4rem', color: '#f43f5e' }}>
+                        {maxLoss === -Infinity ? 'Unlimited / Undefined' : `Rs.${Math.abs(maxLoss).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`}
+                      </strong>
+                    </div>
+
+                    {/* Max Profit Per Lot */}
+                    <div style={{ background: 'rgba(16, 185, 129, 0.05)', padding: '1rem', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.15)', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>MAX PROFIT (PER LOT)</span>
+                      <strong style={{ fontSize: '1.4rem', color: '#10b981' }}>
+                        {maxProfitPerLot === Infinity ? 'Unlimited' : `Rs.${maxProfitPerLot.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`}
+                      </strong>
+                    </div>
+
+                    {/* Max Loss Per Lot */}
+                    <div style={{ background: 'rgba(244, 63, 94, 0.05)', padding: '1rem', borderRadius: '12px', border: '1px solid rgba(244, 63, 94, 0.15)', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>MAX LOSS (PER LOT)</span>
+                      <strong style={{ fontSize: '1.4rem', color: '#f43f5e' }}>
+                        {maxLossPerLot === -Infinity ? 'Unlimited / Undefined' : `Rs.${Math.abs(maxLossPerLot).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* GREEKS CONSOLE */}
               {portfolioGreeks && (
