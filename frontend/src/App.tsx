@@ -316,120 +316,197 @@ export default function App() {
 
   const clearAllLegs = () => setLegs([]);
 
-  // Load a setup strategy recommended by the Elite Strategist
+  // Load a strategy into the workbench atomically — avoids React batching race conditions
   const loadStrategySetup = (strategy: StrategistRecommendation) => {
-    clearAllLegs();
-    const currentSpot = optionChain?.underlying_price || 24000;
-    
-    // Parse recommended legs from strategist string format
-    // Simple heuristic parser for our 6 main archetype structures
-    if (strategy.name.includes("Long Call")) {
-      const strike = optionChain?.atm_strike || 24250;
-      const row = optionChain?.strikes.find(s => s.strike === strike);
-      addLeg({ type: 'call', action: 'buy', strike, premium: row?.CE.ltp || 120, quantity: 1 });
-    } 
-    else if (strategy.name.includes("Long Put")) {
-      const strike = optionChain?.atm_strike || 24250;
-      const row = optionChain?.strikes.find(s => s.strike === strike);
-      addLeg({ type: 'put', action: 'buy', strike, premium: row?.PE.ltp || 100, quantity: 1 });
+    const n = strategy.name.toLowerCase();
+    const atm = optionChain?.atm_strike || 24250;
+    const step = optionChain?.strikes.length
+      ? Math.abs((optionChain.strikes[1]?.strike || atm + 50) - optionChain.strikes[0].strike)
+      : 50;
+
+    // Helper: find closest strike in chain
+    const closest = (target: number) =>
+      optionChain?.strikes.reduce((a, b) =>
+        Math.abs(b.strike - target) < Math.abs(a.strike - target) ? b : a
+      ) ?? null;
+
+    // Helper: get CE/PE premium from row
+    const ce  = (k: number) => closest(k)?.CE.ltp  || 0;
+    const pe  = (k: number) => closest(k)?.PE.ltp  || 0;
+    const ceBid = (k: number) => closest(k)?.CE.bid || ce(k);
+    const ceAsk = (k: number) => closest(k)?.CE.ask || ce(k);
+    const peBid = (k: number) => closest(k)?.PE.bid || pe(k);
+    const peAsk = (k: number) => closest(k)?.PE.ask || pe(k);
+
+    const id = () => Math.random().toString(36).substring(2, 9);
+
+    let newLegs: OptionLeg[] = [];
+
+    // ─── BUYING STRATEGIES ────────────────────────────────────────────────────
+    if (n.includes('long call') || (n.includes('buy call') && !n.includes('spread'))) {
+      newLegs = [
+        { id: id(), type: 'call', action: 'buy', strike: atm, premium: ceAsk(atm), quantity: 1 }
+      ];
     }
-    else if (strategy.name.includes("Debit Spread")) {
-      const isBull = strategy.name.includes("Bull Call");
-      const strikeStep = 50;
-      const buyK = optionChain ? optionChain.atm_strike + (isBull ? -strikeStep : strikeStep) : 24200;
-      const sellK = buyK + (isBull ? 100 : -100);
-      
-      const bRow = optionChain?.strikes.find(s => s.strike === buyK);
-      const sRow = optionChain?.strikes.find(s => s.strike === sellK);
-      
-      addLeg({ 
-        type: isBull ? 'call' : 'put', 
-        action: 'buy', 
-        strike: buyK, 
-        premium: isBull ? (bRow?.CE.ltp || 140) : (bRow?.PE.ltp || 140), 
-        quantity: 1 
-      });
-      addLeg({ 
-        type: isBull ? 'call' : 'put', 
-        action: 'sell', 
-        strike: sellK, 
-        premium: isBull ? (sRow?.CE.ltp || 70) : (sRow?.PE.ltp || 70), 
-        quantity: 1 
-      });
+    else if (n.includes('long put') || (n.includes('buy put') && !n.includes('spread'))) {
+      newLegs = [
+        { id: id(), type: 'put', action: 'buy', strike: atm, premium: peAsk(atm), quantity: 1 }
+      ];
     }
-    else if (strategy.name.includes("Credit Spread")) {
-      const isBull = strategy.name.includes("Bull Put");
-      const strikeStep = 50;
-      const sellK = optionChain ? optionChain.atm_strike + (isBull ? -strikeStep : strikeStep) : 24200;
-      const buyK = sellK + (isBull ? -100 : 100);
-      
-      const sRow = optionChain?.strikes.find(s => s.strike === sellK);
-      const bRow = optionChain?.strikes.find(s => s.strike === buyK);
-      
-      addLeg({ 
-        type: isBull ? 'put' : 'call', 
-        action: 'sell', 
-        strike: sellK, 
-        premium: isBull ? (sRow?.PE.ltp || 80) : (sRow?.CE.ltp || 80), 
-        quantity: 1 
-      });
-      addLeg({ 
-        type: isBull ? 'put' : 'call', 
-        action: 'buy', 
-        strike: buyK, 
-        premium: isBull ? (bRow?.PE.ltp || 35) : (bRow?.CE.ltp || 35), 
-        quantity: 1 
-      });
+    else if (n.includes('long straddle') || (n.includes('straddle') && n.includes('long'))) {
+      newLegs = [
+        { id: id(), type: 'call', action: 'buy', strike: atm, premium: ceAsk(atm), quantity: 1 },
+        { id: id(), type: 'put',  action: 'buy', strike: atm, premium: peAsk(atm), quantity: 1 }
+      ];
     }
-    else if (strategy.name.includes("Iron Condor")) {
-      const step = 50;
-      const atm = optionChain?.atm_strike || 24250;
-      const peSell = atm - 2 * step;
-      const peBuy = peSell - 2 * step;
-      const ceSell = atm + 2 * step;
-      const ceBuy = ceSell + 2 * step;
-      
-      const peSRow = optionChain?.strikes.find(s => s.strike === peSell);
-      const peBRow = optionChain?.strikes.find(s => s.strike === peBuy);
-      const ceSRow = optionChain?.strikes.find(s => s.strike === ceSell);
-      const ceBRow = optionChain?.strikes.find(s => s.strike === ceBuy);
-      
-      addLeg({ type: 'put', action: 'buy', strike: peBuy, premium: peBRow?.PE.ltp || 10, quantity: 1 });
-      addLeg({ type: 'put', action: 'sell', strike: peSell, premium: peSRow?.PE.ltp || 28, quantity: 1 });
-      addLeg({ type: 'call', action: 'sell', strike: ceSell, premium: ceSRow?.CE.ltp || 28, quantity: 1 });
-      addLeg({ type: 'call', action: 'buy', strike: ceBuy, premium: ceBRow?.CE.ltp || 10, quantity: 1 });
+    else if (n.includes('long strangle') || (n.includes('strangle') && n.includes('long'))) {
+      const cK = atm + step;
+      const pK = atm - step;
+      newLegs = [
+        { id: id(), type: 'call', action: 'buy', strike: cK, premium: ceAsk(cK), quantity: 1 },
+        { id: id(), type: 'put',  action: 'buy', strike: pK, premium: peAsk(pK), quantity: 1 }
+      ];
     }
-    else if (strategy.name.includes("Short Straddle")) {
-      const strike = optionChain?.atm_strike || 24250;
-      const row = optionChain?.strikes.find(s => s.strike === strike);
-      addLeg({ type: 'call', action: 'sell', strike, premium: row?.CE.ltp || 95, quantity: 1 });
-      addLeg({ type: 'put', action: 'sell', strike, premium: row?.PE.ltp || 85, quantity: 1 });
+    else if (n.includes('bull call') || (n.includes('debit spread') && (n.includes('call') || n.includes('bull')))) {
+      const buyK  = atm;
+      const sellK = atm + 2 * step;
+      newLegs = [
+        { id: id(), type: 'call', action: 'buy',  strike: buyK,  premium: ceAsk(buyK),  quantity: 1 },
+        { id: id(), type: 'call', action: 'sell', strike: sellK, premium: ceBid(sellK), quantity: 1 }
+      ];
     }
-    else if (strategy.name.includes("Ratio Backspread")) {
-      const isCall = strategy.name.includes("Call");
-      const step = 50;
-      const atm = optionChain?.atm_strike || 24250;
+    else if (n.includes('bear put') || (n.includes('debit spread') && (n.includes('put') || n.includes('bear')))) {
+      const buyK  = atm;
+      const sellK = atm - 2 * step;
+      newLegs = [
+        { id: id(), type: 'put', action: 'buy',  strike: buyK,  premium: peAsk(buyK),  quantity: 1 },
+        { id: id(), type: 'put', action: 'sell', strike: sellK, premium: peBid(sellK), quantity: 1 }
+      ];
+    }
+    else if (n.includes('call ratio backspread') || (n.includes('ratio backspread') && n.includes('call'))) {
       const sellK = atm;
-      const buyK = atm + (isCall ? step : -step);
-      
-      const sRow = optionChain?.strikes.find(s => s.strike === sellK);
-      const bRow = optionChain?.strikes.find(s => s.strike === buyK);
-      
-      addLeg({ 
-        type: isCall ? 'call' : 'put', 
-        action: 'sell', 
-        strike: sellK, 
-        premium: isCall ? (sRow?.CE.ltp || 120) : (sRow?.PE.ltp || 100), 
-        quantity: 1 
-      });
-      addLeg({ 
-        type: isCall ? 'call' : 'put', 
-        action: 'buy', 
-        strike: buyK, 
-        premium: isCall ? (bRow?.CE.ltp || 55) : (bRow?.PE.ltp || 50), 
-        quantity: 1 
-      });
+      const buyK  = atm + step;
+      newLegs = [
+        { id: id(), type: 'call', action: 'sell', strike: sellK, premium: ceBid(sellK), quantity: 1 },
+        { id: id(), type: 'call', action: 'buy',  strike: buyK,  premium: ceAsk(buyK),  quantity: 2 }
+      ];
     }
+    else if (n.includes('put ratio backspread') || (n.includes('ratio backspread') && n.includes('put'))) {
+      const sellK = atm;
+      const buyK  = atm - step;
+      newLegs = [
+        { id: id(), type: 'put', action: 'sell', strike: sellK, premium: peBid(sellK), quantity: 1 },
+        { id: id(), type: 'put', action: 'buy',  strike: buyK,  premium: peAsk(buyK),  quantity: 2 }
+      ];
+    }
+    else if (n.includes('ratio backspread')) {
+      // generic fallback — assume call
+      const sellK = atm;
+      const buyK  = atm + step;
+      newLegs = [
+        { id: id(), type: 'call', action: 'sell', strike: sellK, premium: ceBid(sellK), quantity: 1 },
+        { id: id(), type: 'call', action: 'buy',  strike: buyK,  premium: ceAsk(buyK),  quantity: 2 }
+      ];
+    }
+    else if (n.includes('calendar spread') || n.includes('time spread')) {
+      // Can only show current expiry; use far OTM as placeholder for far leg
+      newLegs = [
+        { id: id(), type: 'call', action: 'sell', strike: atm, premium: ceBid(atm), quantity: 1 },
+        { id: id(), type: 'call', action: 'buy',  strike: atm, premium: ceAsk(atm) * 1.4, quantity: 1 }
+      ];
+    }
+
+    // ─── SELLING / CREDIT STRATEGIES ─────────────────────────────────────────
+    else if (n.includes('short straddle') || (n.includes('straddle') && (n.includes('short') || n.includes('sell')))) {
+      newLegs = [
+        { id: id(), type: 'call', action: 'sell', strike: atm, premium: ceBid(atm), quantity: 1 },
+        { id: id(), type: 'put',  action: 'sell', strike: atm, premium: peBid(atm), quantity: 1 }
+      ];
+    }
+    else if (n.includes('short strangle') || (n.includes('strangle') && (n.includes('short') || n.includes('sell')))) {
+      const cK = atm + step;
+      const pK = atm - step;
+      newLegs = [
+        { id: id(), type: 'call', action: 'sell', strike: cK, premium: ceBid(cK), quantity: 1 },
+        { id: id(), type: 'put',  action: 'sell', strike: pK, premium: peBid(pK), quantity: 1 }
+      ];
+    }
+    else if (n.includes('iron fly') || n.includes('iron butterfly')) {
+      newLegs = [
+        { id: id(), type: 'put',  action: 'buy',  strike: atm - 2 * step, premium: peAsk(atm - 2 * step), quantity: 1 },
+        { id: id(), type: 'put',  action: 'sell', strike: atm,             premium: peBid(atm),             quantity: 1 },
+        { id: id(), type: 'call', action: 'sell', strike: atm,             premium: ceBid(atm),             quantity: 1 },
+        { id: id(), type: 'call', action: 'buy',  strike: atm + 2 * step, premium: ceAsk(atm + 2 * step), quantity: 1 }
+      ];
+    }
+    else if (n.includes('iron condor')) {
+      const peSell = atm - 2 * step;
+      const peBuy  = atm - 4 * step;
+      const ceSell = atm + 2 * step;
+      const ceBuyK = atm + 4 * step;
+      newLegs = [
+        { id: id(), type: 'put',  action: 'buy',  strike: peBuy,  premium: peAsk(peBuy),  quantity: 1 },
+        { id: id(), type: 'put',  action: 'sell', strike: peSell, premium: peBid(peSell), quantity: 1 },
+        { id: id(), type: 'call', action: 'sell', strike: ceSell, premium: ceBid(ceSell), quantity: 1 },
+        { id: id(), type: 'call', action: 'buy',  strike: ceBuyK, premium: ceAsk(ceBuyK), quantity: 1 }
+      ];
+    }
+    else if (n.includes('bull put') || (n.includes('credit spread') && (n.includes('put') || n.includes('bull')))) {
+      const sellK = atm;
+      const buyK  = atm - 2 * step;
+      newLegs = [
+        { id: id(), type: 'put', action: 'sell', strike: sellK, premium: peBid(sellK), quantity: 1 },
+        { id: id(), type: 'put', action: 'buy',  strike: buyK,  premium: peAsk(buyK),  quantity: 1 }
+      ];
+    }
+    else if (n.includes('bear call') || (n.includes('credit spread') && (n.includes('call') || n.includes('bear')))) {
+      const sellK = atm;
+      const buyK  = atm + 2 * step;
+      newLegs = [
+        { id: id(), type: 'call', action: 'sell', strike: sellK, premium: ceBid(sellK), quantity: 1 },
+        { id: id(), type: 'call', action: 'buy',  strike: buyK,  premium: ceAsk(buyK),  quantity: 1 }
+      ];
+    }
+    else if (n.includes('covered call') || n.includes('buy-write')) {
+      const spot = optionChain?.underlying_price || atm;
+      newLegs = [
+        { id: id(), type: 'stock', action: 'buy',  strike: spot, premium: spot, quantity: 1 },
+        { id: id(), type: 'call',  action: 'sell', strike: atm + step, premium: ceBid(atm + step), quantity: 1 }
+      ];
+    }
+    else if (n.includes('protective put') || n.includes('married put')) {
+      const spot = optionChain?.underlying_price || atm;
+      newLegs = [
+        { id: id(), type: 'stock', action: 'buy', strike: spot, premium: spot, quantity: 1 },
+        { id: id(), type: 'put',   action: 'buy', strike: atm - step, premium: peAsk(atm - step), quantity: 1 }
+      ];
+    }
+    else if (n.includes('short call') || n.includes('naked call')) {
+      newLegs = [
+        { id: id(), type: 'call', action: 'sell', strike: atm + step, premium: ceBid(atm + step), quantity: 1 }
+      ];
+    }
+    else if (n.includes('short put') || n.includes('naked put') || n.includes('cash-secured put')) {
+      newLegs = [
+        { id: id(), type: 'put', action: 'sell', strike: atm - step, premium: peBid(atm - step), quantity: 1 }
+      ];
+    }
+    else {
+      // ── Fallback: use strategy.type to load a sensible default ──
+      if (strategy.type === 'buying') {
+        newLegs = [
+          { id: id(), type: 'call', action: 'buy', strike: atm, premium: ceAsk(atm), quantity: 1 }
+        ];
+      } else {
+        newLegs = [
+          { id: id(), type: 'call', action: 'sell', strike: atm + step, premium: ceBid(atm + step), quantity: 1 },
+          { id: id(), type: 'put',  action: 'sell', strike: atm - step, premium: peBid(atm - step), quantity: 1 }
+        ];
+      }
+    }
+
+    // Atomically replace all legs in one state update
+    setLegs(newLegs);
   };
 
   // SVG dimensions & limits for custom plot
