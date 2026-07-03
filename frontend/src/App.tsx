@@ -456,20 +456,20 @@ export default function App() {
   };
 
   const { maxProfit, maxLoss, lotSize, lotCount, maxProfitPerLot, maxLossPerLot } = useMemo(() => {
-    if (payoffCurve.length === 0) {
+    if (payoffCurve.length === 0 || legs.length === 0) {
       return { maxProfit: 0, maxLoss: 0, lotSize: 1, lotCount: 1, maxProfitPerLot: 0, maxLossPerLot: 0 };
     }
     const expPnls = payoffCurve.map(p => p.expiration_pnl);
     const minP = Math.min(...expPnls);
     const maxP = Math.max(...expPnls);
-    
+
     // Boundary check for uncapped profits/losses
     const firstPoint = payoffCurve[0];
     const lastPoint = payoffCurve[payoffCurve.length - 1];
-    
+
     let isUncappedProfit = false;
     let isUncappedLoss = false;
-    
+
     if (lastPoint.expiration_pnl > maxP * 0.95 && legs.some(l => l.action === 'buy' && l.type === 'call')) {
       isUncappedProfit = true;
     }
@@ -482,22 +482,29 @@ export default function App() {
     if (firstPoint.expiration_pnl < minP * 1.05 && legs.some(l => l.action === 'sell' && l.type === 'put')) {
       isUncappedLoss = true;
     }
-    
+
     const currentLotSize = LOT_SIZES[symbol] || 1;
-    // Base lot count calculated from the first option leg quantity
-    const baseLegQty = legs[0]?.quantity || currentLotSize;
-    const computedLotCount = Math.max(1, baseLegQty / currentLotSize);
-    
+
+    // Use the dominant (max qty) leg as the reference for normalisation.
+    // The backend P&L is already scaled by each leg's quantity, so we
+    // normalise back to per-unit, then scale to exactly 1 lot.
+    const maxLegQty = Math.max(...legs.map(l => l.quantity), 1);
+    const numLots   = Math.max(1, Math.round(maxLegQty / currentLotSize));
+
+    // Per-1-lot P&L = (total P&L / total units in position) × lot size
+    // Equivalent to: total P&L × (lotSize / maxLegQty)
+    const scaleFactor = currentLotSize / maxLegQty;   // e.g. 25/50 = 0.5 for NIFTY 2 lots
+
     const finalMaxProfit = isUncappedProfit ? Infinity : maxP;
-    const finalMaxLoss = isUncappedLoss ? -Infinity : minP;
-    
+    const finalMaxLoss   = isUncappedLoss   ? -Infinity : minP;
+
     return {
       maxProfit: finalMaxProfit,
-      maxLoss: finalMaxLoss,
-      lotSize: currentLotSize,
-      lotCount: computedLotCount,
-      maxProfitPerLot: finalMaxProfit === Infinity ? Infinity : finalMaxProfit / computedLotCount,
-      maxLossPerLot: finalMaxLoss === -Infinity ? -Infinity : finalMaxLoss / computedLotCount
+      maxLoss:   finalMaxLoss,
+      lotSize:   currentLotSize,
+      lotCount:  numLots,
+      maxProfitPerLot: finalMaxProfit === Infinity ? Infinity : finalMaxProfit * scaleFactor,
+      maxLossPerLot:   finalMaxLoss   === -Infinity ? -Infinity : finalMaxLoss * scaleFactor
     };
   }, [payoffCurve, legs, symbol]);
 
@@ -1130,37 +1137,42 @@ export default function App() {
               {/* RISK PROFILE AND LOT QUANTITY ANALYSIS */}
               {portfolioGreeks && (
                 <div className="card" style={{ background: 'rgba(16, 24, 39, 0.2)', borderColor: 'rgba(96, 165, 250, 0.1)' }}>
-                  <h3 className="card-title" style={{ color: '#60a5fa' }}>Strategy Risk & Payoff Metrics (Lot Size: {lotSize})</h3>
+                  <h3 className="card-title" style={{ color: '#60a5fa' }}>
+                    Strategy Risk & Payoff Metrics
+                    <span style={{ fontSize: '0.8rem', fontWeight: 400, color: 'var(--text-muted)', marginLeft: '0.75rem' }}>
+                      Lot Size: {lotSize} contracts · Position: {lotCount} lot{lotCount !== 1 ? 's' : ''}
+                    </span>
+                  </h3>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
-                    {/* Max Profit */}
+                    {/* Max Profit Total */}
                     <div style={{ background: 'rgba(16, 185, 129, 0.05)', padding: '1rem', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.15)', textAlign: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>MAX PROFIT (TOTAL)</span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>MAX PROFIT (FULL POSITION)</span>
                       <strong style={{ fontSize: '1.4rem', color: '#10b981' }}>
-                        {maxProfit === Infinity ? 'Unlimited' : `Rs.${maxProfit.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`}
+                        {maxProfit === Infinity ? 'Unlimited' : `Rs.${maxProfit.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
                       </strong>
                     </div>
-                    
-                    {/* Max Loss */}
+
+                    {/* Max Loss Total */}
                     <div style={{ background: 'rgba(244, 63, 94, 0.05)', padding: '1rem', borderRadius: '12px', border: '1px solid rgba(244, 63, 94, 0.15)', textAlign: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>MAX LOSS (TOTAL)</span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>MAX LOSS (FULL POSITION)</span>
                       <strong style={{ fontSize: '1.4rem', color: '#f43f5e' }}>
-                        {maxLoss === -Infinity ? 'Unlimited / Undefined' : `Rs.${Math.abs(maxLoss).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`}
+                        {maxLoss === -Infinity ? 'Unlimited' : `Rs.${Math.abs(maxLoss).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
                       </strong>
                     </div>
 
                     {/* Max Profit Per Lot */}
-                    <div style={{ background: 'rgba(16, 185, 129, 0.05)', padding: '1rem', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.15)', textAlign: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>MAX PROFIT (PER LOT)</span>
-                      <strong style={{ fontSize: '1.4rem', color: '#10b981' }}>
-                        {maxProfitPerLot === Infinity ? 'Unlimited' : `Rs.${maxProfitPerLot.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`}
+                    <div style={{ background: 'rgba(16, 185, 129, 0.08)', padding: '1rem', borderRadius: '12px', border: '2px solid rgba(16, 185, 129, 0.3)', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>MAX PROFIT (PER LOT of {lotSize})</span>
+                      <strong style={{ fontSize: '1.4rem', color: '#34d399' }}>
+                        {maxProfitPerLot === Infinity ? 'Unlimited' : `Rs.${maxProfitPerLot.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
                       </strong>
                     </div>
 
                     {/* Max Loss Per Lot */}
-                    <div style={{ background: 'rgba(244, 63, 94, 0.05)', padding: '1rem', borderRadius: '12px', border: '1px solid rgba(244, 63, 94, 0.15)', textAlign: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>MAX LOSS (PER LOT)</span>
-                      <strong style={{ fontSize: '1.4rem', color: '#f43f5e' }}>
-                        {maxLossPerLot === -Infinity ? 'Unlimited / Undefined' : `Rs.${Math.abs(maxLossPerLot).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`}
+                    <div style={{ background: 'rgba(244, 63, 94, 0.08)', padding: '1rem', borderRadius: '12px', border: '2px solid rgba(244, 63, 94, 0.3)', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>MAX LOSS (PER LOT of {lotSize})</span>
+                      <strong style={{ fontSize: '1.4rem', color: '#fb7185' }}>
+                        {maxLossPerLot === -Infinity ? 'Unlimited' : `Rs.${Math.abs(maxLossPerLot).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
                       </strong>
                     </div>
                   </div>
