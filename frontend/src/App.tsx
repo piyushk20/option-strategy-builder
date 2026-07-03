@@ -259,7 +259,7 @@ export default function App() {
             action: l.action,
             strike: l.strike,
             premium: l.premium,
-            quantity: l.quantity
+            quantity: l.quantity * getLotSize(symbol)   // convert lots → contracts for backend
           })),
           t: daysToExpiry / 365.0,
           r: interestRate,
@@ -326,12 +326,12 @@ export default function App() {
     if (strategy.name.includes("Long Call")) {
       const strike = optionChain?.atm_strike || 24250;
       const row = optionChain?.strikes.find(s => s.strike === strike);
-      addLeg({ type: 'call', action: 'buy', strike, premium: row?.CE.ltp || 120, quantity: getLotSize(symbol) });
+      addLeg({ type: 'call', action: 'buy', strike, premium: row?.CE.ltp || 120, quantity: 1 });
     } 
     else if (strategy.name.includes("Long Put")) {
       const strike = optionChain?.atm_strike || 24250;
       const row = optionChain?.strikes.find(s => s.strike === strike);
-      addLeg({ type: 'put', action: 'buy', strike, premium: row?.PE.ltp || 100, quantity: getLotSize(symbol) });
+      addLeg({ type: 'put', action: 'buy', strike, premium: row?.PE.ltp || 100, quantity: 1 });
     }
     else if (strategy.name.includes("Debit Spread")) {
       const isBull = strategy.name.includes("Bull Call");
@@ -347,14 +347,14 @@ export default function App() {
         action: 'buy', 
         strike: buyK, 
         premium: isBull ? (bRow?.CE.ltp || 140) : (bRow?.PE.ltp || 140), 
-        quantity: getLotSize(symbol) 
+        quantity: 1 
       });
       addLeg({ 
         type: isBull ? 'call' : 'put', 
         action: 'sell', 
         strike: sellK, 
         premium: isBull ? (sRow?.CE.ltp || 70) : (sRow?.PE.ltp || 70), 
-        quantity: getLotSize(symbol) 
+        quantity: 1 
       });
     }
     else if (strategy.name.includes("Credit Spread")) {
@@ -371,14 +371,14 @@ export default function App() {
         action: 'sell', 
         strike: sellK, 
         premium: isBull ? (sRow?.PE.ltp || 80) : (sRow?.CE.ltp || 80), 
-        quantity: getLotSize(symbol) 
+        quantity: 1 
       });
       addLeg({ 
         type: isBull ? 'put' : 'call', 
         action: 'buy', 
         strike: buyK, 
         premium: isBull ? (bRow?.PE.ltp || 35) : (bRow?.CE.ltp || 35), 
-        quantity: getLotSize(symbol) 
+        quantity: 1 
       });
     }
     else if (strategy.name.includes("Iron Condor")) {
@@ -394,16 +394,16 @@ export default function App() {
       const ceSRow = optionChain?.strikes.find(s => s.strike === ceSell);
       const ceBRow = optionChain?.strikes.find(s => s.strike === ceBuy);
       
-      addLeg({ type: 'put', action: 'buy', strike: peBuy, premium: peBRow?.PE.ltp || 10, quantity: getLotSize(symbol) });
-      addLeg({ type: 'put', action: 'sell', strike: peSell, premium: peSRow?.PE.ltp || 28, quantity: getLotSize(symbol) });
-      addLeg({ type: 'call', action: 'sell', strike: ceSell, premium: ceSRow?.CE.ltp || 28, quantity: getLotSize(symbol) });
-      addLeg({ type: 'call', action: 'buy', strike: ceBuy, premium: ceBRow?.CE.ltp || 10, quantity: getLotSize(symbol) });
+      addLeg({ type: 'put', action: 'buy', strike: peBuy, premium: peBRow?.PE.ltp || 10, quantity: 1 });
+      addLeg({ type: 'put', action: 'sell', strike: peSell, premium: peSRow?.PE.ltp || 28, quantity: 1 });
+      addLeg({ type: 'call', action: 'sell', strike: ceSell, premium: ceSRow?.CE.ltp || 28, quantity: 1 });
+      addLeg({ type: 'call', action: 'buy', strike: ceBuy, premium: ceBRow?.CE.ltp || 10, quantity: 1 });
     }
     else if (strategy.name.includes("Short Straddle")) {
       const strike = optionChain?.atm_strike || 24250;
       const row = optionChain?.strikes.find(s => s.strike === strike);
-      addLeg({ type: 'call', action: 'sell', strike, premium: row?.CE.ltp || 95, quantity: getLotSize(symbol) });
-      addLeg({ type: 'put', action: 'sell', strike, premium: row?.PE.ltp || 85, quantity: getLotSize(symbol) });
+      addLeg({ type: 'call', action: 'sell', strike, premium: row?.CE.ltp || 95, quantity: 1 });
+      addLeg({ type: 'put', action: 'sell', strike, premium: row?.PE.ltp || 85, quantity: 1 });
     }
     else if (strategy.name.includes("Ratio Backspread")) {
       const isCall = strategy.name.includes("Call");
@@ -420,14 +420,14 @@ export default function App() {
         action: 'sell', 
         strike: sellK, 
         premium: isCall ? (sRow?.CE.ltp || 120) : (sRow?.PE.ltp || 100), 
-        quantity: getLotSize(symbol) 
+        quantity: 1 
       });
       addLeg({ 
         type: isCall ? 'call' : 'put', 
         action: 'buy', 
         strike: buyK, 
         premium: isCall ? (bRow?.CE.ltp || 55) : (bRow?.PE.ltp || 50), 
-        quantity: getLotSize(symbol) 
+        quantity: 1 
       });
     }
   };
@@ -477,14 +477,14 @@ export default function App() {
     if (lastPoint.expiration_pnl < minP * 1.05 && legs.some(l => l.action === 'sell' && l.type === 'call')) isUncappedLoss = true;
     if (firstPoint.expiration_pnl < minP * 1.05 && legs.some(l => l.action === 'sell' && l.type === 'put')) isUncappedLoss = true;
 
-    // Since all addLeg calls now use getLotSize(symbol), each leg quantity = 1 lot.
-    // Payoff = (premium_diff × lotSize) — that IS the per-lot value already.
-    // numLots counts how many lots the largest leg represents (usually 1).
     const currentLotSize = getLotSize(symbol);
-    const maxLegQty      = Math.max(...legs.map(l => l.quantity), 1);
-    const numLots        = Math.max(1, Math.round(maxLegQty / currentLotSize));
 
-    // Per-lot = total ÷ numLots  (if user manually typed a qty > 1 lot, this still works)
+    // leg.quantity now stores NUMBER OF LOTS (e.g. 1, 2).
+    // Backend receives lots × lotSize contracts, so total payoff is already scaled.
+    // The dominant leg's lot count = numLots for the full position.
+    // Per-lot = total payoff / numLots  → gives P&L for exactly 1 lot.
+    const numLots = Math.max(...legs.map(l => l.quantity), 1);
+
     const finalMaxProfit = isUncappedProfit ? Infinity : maxP;
     const finalMaxLoss   = isUncappedLoss   ? -Infinity : minP;
 
@@ -949,7 +949,7 @@ export default function App() {
           {/* ACTIVE WORKBENCH */}
           <div className="card">
             <div className="card-title">
-              <span>Workbench Selection ({legs.length} Active Legs)</span>
+              <span>Workbench Selection ({legs.length} Active Leg{legs.length !== 1 ? 's' : ''} · {legs.reduce((s, l) => s + l.quantity, 0)} lot{legs.reduce((s, l) => s + l.quantity, 0) !== 1 ? 's' : ''} total)</span>
               {legs.length > 0 && (
                 <button className="danger" onClick={clearAllLegs} style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem' }}>
                   <RotateCcw size={12} /> Reset Workbench
@@ -996,13 +996,17 @@ export default function App() {
                       </select>
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>Qty</label>
+                      <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>Lots</label>
                       <input 
                         type="number" 
+                        min={1}
                         value={leg.quantity}
-                        onChange={(e) => updateLeg(leg.id, 'quantity', parseInt(e.target.value) || 1)}
-                        style={{ padding: '0.2rem', width: '60px', fontSize: '0.8rem' }}
+                        onChange={(e) => updateLeg(leg.id, 'quantity', Math.max(1, parseInt(e.target.value) || 1))}
+                        style={{ padding: '0.2rem', width: '55px', fontSize: '0.8rem' }}
                       />
+                      <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block', marginTop: '2px' }}>
+                        {leg.quantity * getLotSize(symbol)} contracts
+                      </span>
                     </div>
                     <button className="danger" onClick={() => removeLeg(leg.id)} style={{ padding: '0.4rem' }}>
                       <Trash2 size={14} />
@@ -1014,7 +1018,7 @@ export default function App() {
 
             <button 
               className="outline" 
-              onClick={() => addLeg({ type: 'call', action: 'buy', strike: optionChain?.atm_strike || 24000, premium: 50.0, quantity: getLotSize(symbol) })}
+              onClick={() => addLeg({ type: 'call', action: 'buy', strike: optionChain?.atm_strike || 24000, premium: 50.0, quantity: 1 })}
               style={{ width: '100%', marginTop: '1rem' }}
             >
               <Plus size={16} /> Add Custom Position Leg
@@ -1248,12 +1252,12 @@ export default function App() {
                           </td>
                           <td>{(row.CE.iv).toFixed(1)}%</td>
                           <td>
-                            <span className="clickable-price bid" onClick={() => addLeg({ type: 'call', action: 'sell', strike: row.strike, premium: row.CE.bid || row.CE.ltp, quantity: getLotSize(symbol) })}>>
+                            <span className="clickable-price bid" onClick={() => addLeg({ type: 'call', action: 'sell', strike: row.strike, premium: row.CE.bid || row.CE.ltp, quantity: 1 })}>
                               {row.CE.bid || '-'}
                             </span>
                           </td>
                           <td>
-                            <span className="clickable-price ask" onClick={() => addLeg({ type: 'call', action: 'buy', strike: row.strike, premium: row.CE.ask || row.CE.ltp, quantity: getLotSize(symbol) })}>>
+                            <span className="clickable-price ask" onClick={() => addLeg({ type: 'call', action: 'buy', strike: row.strike, premium: row.CE.ask || row.CE.ltp, quantity: 1 })}>
                               {row.CE.ask || '-'}
                             </span>
                           </td>
@@ -1261,12 +1265,12 @@ export default function App() {
                           <td className="strike-cell">{row.strike}</td>
                           
                           <td>
-                            <span className="clickable-price ask" onClick={() => addLeg({ type: 'put', action: 'buy', strike: row.strike, premium: row.PE.bid || row.PE.ltp, quantity: getLotSize(symbol) })}>>
+                            <span className="clickable-price ask" onClick={() => addLeg({ type: 'put', action: 'buy', strike: row.strike, premium: row.PE.bid || row.PE.ltp, quantity: 1 })}>
                               {row.PE.bid || '-'}
                             </span>
                           </td>
                           <td>
-                            <span className="clickable-price bid" onClick={() => addLeg({ type: 'put', action: 'sell', strike: row.strike, premium: row.PE.ask || row.PE.ltp, quantity: getLotSize(symbol) })}>>
+                            <span className="clickable-price bid" onClick={() => addLeg({ type: 'put', action: 'sell', strike: row.strike, premium: row.PE.ask || row.PE.ltp, quantity: 1 })}>
                               {row.PE.ask || '-'}
                             </span>
                           </td>
