@@ -95,58 +95,246 @@ interface PayoffResponse {
   greeks: PortfolioGreeks;
 }
 
-const AVAILABLE_SYMBOLS = [
-  { value: 'NIFTY', label: 'NIFTY (Index)', isIndex: true },
-  { value: 'BANKNIFTY', label: 'BANK NIFTY (Index)', isIndex: true },
-  { value: 'FINNIFTY', label: 'FIN NIFTY (Index)', isIndex: true },
-  { value: 'MIDCPNIFTY', label: 'MIDCAP NIFTY (Index)', isIndex: true },
-  { value: 'RELIANCE', label: 'RELIANCE (Reliance Industries)', isIndex: false },
-  { value: 'TCS', label: 'TCS (Tata Consultancy Services)', isIndex: false },
-  { value: 'INFY', label: 'INFY (Infosys Ltd)', isIndex: false },
-  { value: 'HDFCBANK', label: 'HDFCBANK (HDFC Bank)', isIndex: false },
-  { value: 'ICICIBANK', label: 'ICICIBANK (ICICI Bank)', isIndex: false },
-  { value: 'SBIN', label: 'SBIN (State Bank of India)', isIndex: false },
-  { value: 'ITC', label: 'ITC Ltd', isIndex: false },
-  { value: 'BHARTIARTL', label: 'BHARTIARTL (Bharti Airtel)', isIndex: false },
-  { value: 'LT', label: 'L&T (Larsen & Toubro)', isIndex: false },
-  { value: 'AXISBANK', label: 'AXISBANK (Axis Bank)', isIndex: false },
-  { value: 'KOTAKBANK', label: 'KOTAKBANK (Kotak Mahindra Bank)', isIndex: false },
-  { value: 'TATAMOTORS', label: 'TATAMOTORS (Tata Motors)', isIndex: false },
-  { value: 'TATASTEEL', label: 'TATASTEEL (Tata Steel)', isIndex: false },
-  { value: 'BAJFINANCE', label: 'BAJFINANCE (Bajaj Finance)', isIndex: false },
-  { value: 'MARUTI', label: 'MARUTI (Maruti Suzuki)', isIndex: false },
-  { value: 'SUNPHARMA', label: 'SUNPHARMA (Sun Pharmaceutical)', isIndex: false },
-  { value: 'HCLTECH', label: 'HCLTECH (HCL Technologies)', isIndex: false },
-  { value: 'M&M', label: 'M&M (Mahindra & Mahindra)', isIndex: false },
-  { value: 'WIPRO', label: 'WIPRO (Wipro Ltd)', isIndex: false }
-];
-
 // Official NSE F&O lot sizes (as of July 2025)
 const LOT_SIZES: Record<string, number> = {
-  NIFTY: 25,
-  BANKNIFTY: 15,
-  FINNIFTY: 25,
-  MIDCPNIFTY: 50,
-  RELIANCE: 250,
-  TCS: 175,
-  INFY: 400,
-  HDFCBANK: 550,
-  ICICIBANK: 700,
-  SBIN: 1500,
-  ITC: 1600,
-  BHARTIARTL: 950,
-  LT: 300,
-  AXISBANK: 625,
-  KOTAKBANK: 400,
-  TATAMOTORS: 1425,
-  TATASTEEL: 5500,
-  BAJFINANCE: 125,
-  MARUTI: 50,
-  SUNPHARMA: 700,
-  HCLTECH: 700,
-  'M&M': 350,
-  WIPRO: 1500
+  '360ONE': 500,
+  'ABB': 125,
+  'ABCAPITAL': 3100,
+  'ADANIENSOL': 675,
+  'ADANIENT': 309,
+  'ADANIGREEN': 600,
+  'ADANIPORTS': 475,
+  'ADANIPOWER': 3550,
+  'ALKEM': 125,
+  'AMBER': 100,
+  'AMBUJACEM': 1200,
+  'ANGELONE': 2500,
+  'APLAPOLLO': 350,
+  'APOLLOHOSP': 125,
+  'ASHOKLEY': 5000,
+  'ASIANPAINT': 250,
+  'ASTRAL': 425,
+  'AUBANK': 1000,
+  'AUROPHARMA': 550,
+  'AXISBANK': 625,
+  'BAJAJ-AUTO': 75,
+  'BAJAJFINSV': 300,
+  'BAJAJHLDNG': 75,
+  'BAJFINANCE': 750,
+  'BANDHANBNK': 3600,
+  'BANKBARODA': 2925,
+  'BANKINDIA': 5200,
+  'BANKNIFTY': 30,
+  'BDL': 425,
+  'BEL': 1425,
+  'BHARATFORG': 500,
+  'BHARTIARTL': 475,
+  'BHEL': 2625,
+  'BIOCON': 2500,
+  'BLUESTARCO': 325,
+  'BOSCHLTD': 25,
+  'BPCL': 1975,
+  'BRITANNIA': 125,
+  'BSE': 200,
+  'CAMS': 825,
+  'CANBK': 6750,
+  'CDSL': 475,
+  'CGPOWER': 850,
+  'CHOLAFIN': 625,
+  'CIPLA': 425,
+  'COALINDIA': 1350,
+  'COCHINSHIP': 400,
+  'COFORGE': 475,
+  'COLPAL': 275,
+  'CONCOR': 1250,
+  'CROMPTON': 2150,
+  'CUMMINSIND': 200,
+  'DABUR': 1250,
+  'DALBHARAT': 325,
+  'DELHIVERY': 2075,
+  'DIVISLAB': 100,
+  'DIXON': 50,
+  'DLF': 950,
+  'DMART': 150,
+  'DRREDDY': 625,
+  'EICHERMOT': 100,
+  'ETERNAL': 2425,
+  'EXIDEIND': 1800,
+  'FEDERALBNK': 2500,
+  'FINNIFTY': 60,
+  'FORCEMOT': 25,
+  'FORTIS': 775,
+  'GAIL': 3550,
+  'GLENMARK': 375,
+  'GMRAIRPORT': 6975,
+  'GODFRYPHLP': 275,
+  'GODREJCP': 500,
+  'GODREJPROP': 325,
+  'GRASIM': 250,
+  'GVT&D': 125,
+  'HAL': 150,
+  'HAVELLS': 500,
+  'HCLTECH': 400,
+  'HDFCAMC': 300,
+  'HDFCBANK': 650,
+  'HDFCLIFE': 1100,
+  'HEROMOTOCO': 150,
+  'HINDALCO': 700,
+  'HINDPETRO': 2025,
+  'HINDUNILVR': 300,
+  'HINDZINC': 1225,
+  'HYUNDAI': 275,
+  'ICICIBANK': 700,
+  'ICICIGI': 325,
+  'ICICIPRULI': 925,
+  'IDEA': 71475,
+  'IDFCFIRSTB': 9275,
+  'IEX': 4350,
+  'INDHOTEL': 1000,
+  'INDIANB': 1000,
+  'INDIGO': 150,
+  'INDUSINDBK': 700,
+  'INDUSTOWER': 1700,
+  'INFY': 400,
+  'INOXWIND': 6400,
+  'IOC': 4875,
+  'IREDA': 4525,
+  'IRFC': 5425,
+  'ITC': 1725,
+  'JINDALSTEL': 625,
+  'JIOFIN': 2350,
+  'JSWENERGY': 1075,
+  'JSWSTEEL': 675,
+  'JUBLFOOD': 1250,
+  'KALYANKJIL': 1350,
+  'KAYNES': 150,
+  'KEI': 175,
+  'KFINTECH': 575,
+  'KOTAKBANK': 2000,
+  'KPITTECH': 775,
+  'LAURUSLABS': 850,
+  'LICHSGFIN': 1000,
+  'LICI': 1400,
+  'LODHA': 625,
+  'LT': 175,
+  'LTF': 2250,
+  'LTM': 150,
+  'LUPIN': 425,
+  'M&M': 200,
+  'MANAPPURAM': 3000,
+  'MANKIND': 250,
+  'MARICO': 1200,
+  'MARUTI': 50,
+  'MAXHEALTH': 525,
+  'MAZDOCK': 225,
+  'MCX': 225,
+  'MFSL': 400,
+  'MIDCPNIFTY': 120,
+  'MOTHERSON': 6150,
+  'MOTILALOFS': 775,
+  'MPHASIS': 275,
+  'MUTHOOTFIN': 275,
+  'NAM-INDIA': 625,
+  'NATIONALUM': 1875,
+  'NAUKRI': 550,
+  'NBCC': 6500,
+  'NESTLEIND': 500,
+  'NHPC': 6950,
+  'NIFTY': 65,
+  'NIFTYNXT50': 25,
+  'NMDC': 6750,
+  'NTPC': 1500,
+  'NUVAMA': 500,
+  'NYKAA': 3125,
+  'OBEROIRLTY': 350,
+  'OFSS': 100,
+  'OIL': 1400,
+  'ONGC': 2250,
+  'PAGEIND': 20,
+  'PATANJALI': 1075,
+  'PAYTM': 725,
+  'PERSISTENT': 125,
+  'PETRONET': 1900,
+  'PFC': 1300,
+  'PGEL': 950,
+  'PHOENIXLTD': 350,
+  'PIDILITIND': 500,
+  'PIIND': 175,
+  'PNB': 8000,
+  'PNBHOUSING': 650,
+  'POLICYBZR': 350,
+  'POLYCAB': 125,
+  'POWERGRID': 1900,
+  'POWERINDIA': 25,
+  'PREMIERENE': 650,
+  'PRESTIGE': 450,
+  'RADICO': 150,
+  'RBLBANK': 3175,
+  'RECLTD': 1575,
+  'RELIANCE': 500,
+  'RVNL': 1925,
+  'SAIL': 4700,
+  'SBICARD': 800,
+  'SBILIFE': 375,
+  'SBIN': 750,
+  'SHREECEM': 25,
+  'SHRIRAMFIN': 825,
+  'SIEMENS': 175,
+  'SOLARINDS': 50,
+  'SONACOMS': 1225,
+  'SRF': 200,
+  'SUNPHARMA': 350,
+  'SUPREMEIND': 175,
+  'SUZLON': 12700,
+  'SWIGGY': 1825,
+  'TATACONSUM': 550,
+  'TATAELXSI': 125,
+  'TATAPOWER': 1450,
+  'TATASTEEL': 2750,
+  'TCS': 225,
+  'TECHM': 600,
+  'TIINDIA': 200,
+  'TITAN': 175,
+  'TMPV': 1600,
+  'TORNTPHARM': 125,
+  'TRENT': 225,
+  'TVSMOTOR': 175,
+  'ULTRACEMCO': 50,
+  'UNIONBANK': 4425,
+  'UNITDSPR': 400,
+  'UNOMINDA': 550,
+  'UPL': 1355,
+  'VBL': 1275,
+  'VEDL': 1150,
+  'VMM': 4850,
+  'VOLTAS': 375,
+  'WAAREEENER': 175,
+  'WIPRO': 3000,
+  'YESBANK': 31100,
+  'ZYDUSLIFE': 900
 };
+
+const INDEX_NAMES: Record<string, string> = {
+  NIFTY: 'NIFTY (Index)',
+  BANKNIFTY: 'BANK NIFTY (Index)',
+  FINNIFTY: 'FIN NIFTY (Index)',
+  MIDCPNIFTY: 'MIDCAP NIFTY (Index)',
+  SENSEX: 'SENSEX (Index)',
+  BANKEX: 'BANKEX (Index)'
+};
+
+const AVAILABLE_SYMBOLS = Object.keys(LOT_SIZES).map(sym => ({
+  value: sym,
+  label: INDEX_NAMES[sym] || sym,
+  isIndex: !!INDEX_NAMES[sym]
+})).sort((a, b) => {
+  // Put indices first
+  if (a.isIndex && !b.isIndex) return -1;
+  if (!a.isIndex && b.isIndex) return 1;
+  return a.label.localeCompare(b.label);
+});
+
+
 
 const getLotSize = (sym: string): number => LOT_SIZES[sym] ?? 1;
 
@@ -408,6 +596,34 @@ export default function App() {
         { id: id(), type: 'call', action: 'buy',  strike: buyK,  premium: ceAsk(buyK),  quantity: 2 }
       ];
     }
+    else if (n.includes('long zebra') || (n.includes('zebra') && !n.includes('short'))) {
+      const buyK = atm - (2 * step); // ITM Call
+      const sellK = atm; // ATM Call
+      newLegs = [
+        { id: id(), type: 'call', action: 'buy',  strike: buyK,  premium: ceAsk(buyK),  quantity: 2 },
+        { id: id(), type: 'call', action: 'sell', strike: sellK, premium: ceBid(sellK), quantity: 1 }
+      ];
+    }
+    else if (n.includes('short zebra')) {
+      const buyK = atm + (2 * step); // ITM Put
+      const sellK = atm; // ATM Put
+      newLegs = [
+        { id: id(), type: 'put', action: 'buy',  strike: buyK,  premium: peAsk(buyK),  quantity: 2 },
+        { id: id(), type: 'put', action: 'sell', strike: sellK, premium: peBid(sellK), quantity: 1 }
+      ];
+    }
+    else if (n.includes('long synthetic future') || (n.includes('synthetic future') && !n.includes('short'))) {
+      newLegs = [
+        { id: id(), type: 'call', action: 'buy',  strike: atm, premium: ceAsk(atm), quantity: 1 },
+        { id: id(), type: 'put',  action: 'sell', strike: atm, premium: peBid(atm), quantity: 1 }
+      ];
+    }
+    else if (n.includes('short synthetic future')) {
+      newLegs = [
+        { id: id(), type: 'put',  action: 'buy',  strike: atm, premium: peAsk(atm), quantity: 1 },
+        { id: id(), type: 'call', action: 'sell', strike: atm, premium: ceBid(atm), quantity: 1 }
+      ];
+    }
     else if (n.includes('calendar spread') || n.includes('time spread')) {
       // Can only show current expiry; use far OTM as placeholder for far leg
       newLegs = [
@@ -641,6 +857,16 @@ export default function App() {
     return { text: "LOW CONVICTION ⚠️", color: "#f43f5e" };
   };
 
+  const maxCallOIStrike = useMemo(() => {
+    if (!optionChain?.strikes || optionChain.strikes.length === 0) return 0;
+    return optionChain.strikes.reduce((max, current) => (current.CE.oi > max.CE.oi ? current : max), optionChain.strikes[0]).strike;
+  }, [optionChain]);
+
+  const maxPutOIStrike = useMemo(() => {
+    if (!optionChain?.strikes || optionChain.strikes.length === 0) return 0;
+    return optionChain.strikes.reduce((max, current) => (current.PE.oi > max.PE.oi ? current : max), optionChain.strikes[0]).strike;
+  }, [optionChain]);
+
   return (
     <div style={{ paddingBottom: '3rem' }}>
       <header>
@@ -795,6 +1021,8 @@ export default function App() {
               <button className="outline" onClick={() => loadStrategySetup({ name: 'Iron Condor', rank: 1 } as any)}>Iron Condor</button>
               <button className="outline" onClick={() => loadStrategySetup({ name: 'Short Straddle', rank: 1 } as any)}>Short Straddle</button>
               <button className="outline" onClick={() => loadStrategySetup({ name: 'Call Ratio Backspread', rank: 1 } as any)}>Ratio Backspread</button>
+              <button className="outline" onClick={() => loadStrategySetup({ name: 'Long Zebra', rank: 1 } as any)}>Long Z.E.B.R.A</button>
+              <button className="outline" onClick={() => loadStrategySetup({ name: 'Long Synthetic Future', rank: 1 } as any)}>Synthetic Future</button>
             </div>
           </div>
         </aside>
@@ -818,6 +1046,14 @@ export default function App() {
                 <div>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>MAX PAIN STRIKE</span>
                   <strong style={{ fontSize: '1.2rem', color: '#fbbf24' }}>{optionChain.max_pain}</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>MAX CE OI STRIKE</span>
+                  <strong style={{ fontSize: '1.2rem', color: '#f43f5e' }}>{maxCallOIStrike}</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>MAX PE OI STRIKE</span>
+                  <strong style={{ fontSize: '1.2rem', color: '#10b981' }}>{maxPutOIStrike}</strong>
                 </div>
                 <div>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>ATM STRADDLE PREMIUM</span>
@@ -1007,6 +1243,7 @@ export default function App() {
                           <div>Max Loss: <span style={{ color: '#f43f5e' }}>{strat.max_loss}</span></div>
                           <div>Max Profit: <span style={{ color: '#10b981' }}>{strat.max_profit}</span></div>
                           <div>Breakeven: <span>{strat.breakeven}</span></div>
+                          <div>R-R Ratio: <span style={{ fontWeight: 600 }}>{strat.risk_reward}</span></div>
                         </div>
                         <button 
                           className="outline" 
@@ -1208,41 +1445,37 @@ export default function App() {
               {/* RISK PROFILE AND LOT QUANTITY ANALYSIS */}
               {portfolioGreeks && (
                 <div className="card" style={{ background: 'rgba(16, 24, 39, 0.2)', borderColor: 'rgba(96, 165, 250, 0.1)' }}>
-                  <h3 className="card-title" style={{ color: '#60a5fa' }}>
+                  <h3 className="card-title">
                     Strategy Risk & Payoff Metrics
                     <span style={{ fontSize: '0.8rem', fontWeight: 400, color: 'var(--text-muted)', marginLeft: '0.75rem' }}>
                       Lot Size: {lotSize} contracts · Position: {lotCount} lot{lotCount !== 1 ? 's' : ''}
                     </span>
                   </h3>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
-                    {/* Max Profit Total */}
-                    <div style={{ background: 'rgba(16, 185, 129, 0.05)', padding: '1rem', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.15)', textAlign: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>MAX PROFIT (FULL POSITION)</span>
-                      <strong style={{ fontSize: '1.4rem', color: '#10b981' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-4)', marginTop: 'var(--space-4)' }}>
+                    <div className="metric-box">
+                      <span className="metric-label">MAX PROFIT (FULL POSITION)</span>
+                      <strong className={`metric-value ${maxProfit > 0 || maxProfit === Infinity ? 'positive' : 'neutral'}`}>
                         {maxProfit === Infinity ? 'Unlimited' : `Rs.${maxProfit.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
                       </strong>
                     </div>
 
-                    {/* Max Loss Total */}
-                    <div style={{ background: 'rgba(244, 63, 94, 0.05)', padding: '1rem', borderRadius: '12px', border: '1px solid rgba(244, 63, 94, 0.15)', textAlign: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>MAX LOSS (FULL POSITION)</span>
-                      <strong style={{ fontSize: '1.4rem', color: '#f43f5e' }}>
+                    <div className="metric-box">
+                      <span className="metric-label">MAX LOSS (FULL POSITION)</span>
+                      <strong className={`metric-value ${maxLoss < 0 || maxLoss === -Infinity ? 'negative' : 'neutral'}`}>
                         {maxLoss === -Infinity ? 'Unlimited' : `Rs.${Math.abs(maxLoss).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
                       </strong>
                     </div>
 
-                    {/* Max Profit Per Lot */}
-                    <div style={{ background: 'rgba(16, 185, 129, 0.08)', padding: '1rem', borderRadius: '12px', border: '2px solid rgba(16, 185, 129, 0.3)', textAlign: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>MAX PROFIT (PER LOT of {lotSize})</span>
-                      <strong style={{ fontSize: '1.4rem', color: '#34d399' }}>
+                    <div className="metric-box" style={{ border: '2px solid rgba(16, 185, 129, 0.2)' }}>
+                      <span className="metric-label">MAX PROFIT (PER LOT of {lotSize})</span>
+                      <strong className={`metric-value ${maxProfitPerLot > 0 || maxProfitPerLot === Infinity ? 'positive' : 'neutral'}`}>
                         {maxProfitPerLot === Infinity ? 'Unlimited' : `Rs.${maxProfitPerLot.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
                       </strong>
                     </div>
 
-                    {/* Max Loss Per Lot */}
-                    <div style={{ background: 'rgba(244, 63, 94, 0.08)', padding: '1rem', borderRadius: '12px', border: '2px solid rgba(244, 63, 94, 0.3)', textAlign: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>MAX LOSS (PER LOT of {lotSize})</span>
-                      <strong style={{ fontSize: '1.4rem', color: '#fb7185' }}>
+                    <div className="metric-box" style={{ border: '2px solid rgba(239, 68, 68, 0.2)' }}>
+                      <span className="metric-label">MAX LOSS (PER LOT of {lotSize})</span>
+                      <strong className={`metric-value ${maxLossPerLot < 0 || maxLossPerLot === -Infinity ? 'negative' : 'neutral'}`}>
                         {maxLossPerLot === -Infinity ? 'Unlimited' : `Rs.${Math.abs(maxLossPerLot).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
                       </strong>
                     </div>
@@ -1254,34 +1487,34 @@ export default function App() {
               {portfolioGreeks && (
                 <div className="card">
                   <h3 className="card-title">Portfolio Greeks Sensitivity Analysis</h3>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
-                    <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Delta (Δ)</span>
-                      <strong style={{ fontSize: '1.25rem', color: portfolioGreeks.delta >= 0 ? '#10b981' : '#f43f5e' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 'var(--space-4)', marginTop: 'var(--space-4)' }}>
+                    <div className="metric-box">
+                      <span className="metric-label">Delta (Δ)</span>
+                      <strong className={`metric-value ${portfolioGreeks.delta > 0 ? 'positive' : portfolioGreeks.delta < 0 ? 'negative' : 'neutral'}`}>
                         {portfolioGreeks.delta}
                       </strong>
                     </div>
-                    <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Gamma (γ)</span>
-                      <strong style={{ fontSize: '1.25rem', color: '#a78bfa' }}>
+                    <div className="metric-box">
+                      <span className="metric-label">Gamma (γ)</span>
+                      <strong className="metric-value" style={{ color: 'var(--color-purple)' }}>
                         {portfolioGreeks.gamma.toFixed(5)}
                       </strong>
                     </div>
-                    <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Theta (θ / daily)</span>
-                      <strong style={{ fontSize: '1.25rem', color: portfolioGreeks.theta >= 0 ? '#10b981' : '#f43f5e' }}>
+                    <div className="metric-box">
+                      <span className="metric-label">Theta (θ / daily)</span>
+                      <strong className={`metric-value ${portfolioGreeks.theta > 0 ? 'positive' : portfolioGreeks.theta < 0 ? 'negative' : 'neutral'}`}>
                         {portfolioGreeks.theta}
                       </strong>
                     </div>
-                    <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Vega (v)</span>
-                      <strong style={{ fontSize: '1.25rem', color: '#fbbf24' }}>
+                    <div className="metric-box">
+                      <span className="metric-label">Vega (v)</span>
+                      <strong className="metric-value" style={{ color: 'var(--color-warning)' }}>
                         {portfolioGreeks.vega}
                       </strong>
                     </div>
-                    <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Net Investment Cost</span>
-                      <strong style={{ fontSize: '1.25rem', color: portfolioGreeks.net_cost >= 0 ? '#60a5fa' : '#10b981' }}>
+                    <div className="metric-box">
+                      <span className="metric-label">Net Investment Cost</span>
+                      <strong className="metric-value neutral">
                         Rs.{portfolioGreeks.net_cost}
                       </strong>
                     </div>
