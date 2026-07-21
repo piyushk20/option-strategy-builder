@@ -7,6 +7,12 @@ An institutional-grade, full-stack options strategy builder tailored specificall
 ## 🚀 Key Features
 
 - **Live NSE Options Chain Integration**: Real-time fetching of National Stock Exchange (NSE) indices and 215 F&O stocks with zero blocking.
+- **Change in Open Interest (OI) Momentum Scanner**: Interactive dashboard tracking F&O contracts with the highest positioning shifts, categorized into 4 momentum quadrants:
+  - **Long Build-up** (Rise in OI + Rise in Price)
+  - **Short Covering** (Fall in OI + Rise in Price)
+  - **Short Build-up** (Rise in OI + Fall in Price)
+  - **Long Unwinding** (Fall in OI + Fall in Price)
+  Equipped with search filters, segment toggles (All / Stocks / Indices), and direct analysis links to the Option Workbench.
 - **Dynamic Lot Size Synchronization**: Pulls and caches exact F&O lot sizes directly from the Zerodha Kite Instruments API for precise `Per Lot` P&L calculations.
 - **Elite Strategist Engine**: Automatically computes and ranks the top directional (buying) and non-directional (selling) strategies based on the current Put-Call Ratio (PCR) and Max Pain metrics.
 - **Advanced Strategy Templates**: Single-click setup for complex, professional-grade strategies:

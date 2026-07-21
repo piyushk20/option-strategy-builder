@@ -6,6 +6,8 @@ import math
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+import yfinance as yf
+
 
 logger = logging.getLogger(__name__)
 
@@ -295,6 +297,31 @@ class NSEFetcher:
                 
         return max_pain_strike
 
+    def _fetch_bse_spot_price(self, symbol):
+        """
+        Fetches live spot price of BSE symbols from Yahoo Finance.
+        Returns None if it fails.
+        """
+        ticker_map = {
+            "SENSEX": "^BSESN",
+            "BANKEX": "BSE-BANK.BO"
+        }
+        yf_ticker = ticker_map.get(symbol.upper())
+        if not yf_ticker:
+            return None
+        
+        try:
+            logger.info(f"Fetching live BSE spot price for {symbol} ({yf_ticker}) from yfinance...")
+            ticker = yf.Ticker(yf_ticker)
+            history = ticker.history(period="1d")
+            if not history.empty:
+                spot = float(history["Close"].iloc[-1])
+                logger.info(f"Successfully fetched BSE spot price for {symbol}: {spot}")
+                return spot
+        except Exception as e:
+            logger.error(f"Failed to fetch live BSE spot price for {symbol}: {e}")
+        return None
+
     def generate_mock_option_chain(self, symbol="NIFTY", is_index=True, expiry=None):
         """
         Generates clean, realistic option chain mock data when live scraping is blocked or offline.
@@ -305,6 +332,8 @@ class NSEFetcher:
         symbol_configs = {
             "NIFTY": {"spot": 24300.0, "step": 50},
             "BANKNIFTY": {"spot": 52500.0, "step": 100},
+            "SENSEX": {"spot": 80000.0, "step": 100},
+            "BANKEX": {"spot": 58000.0, "step": 100},
             "FINNIFTY": {"spot": 22200.0, "step": 50},
             "MIDCPNIFTY": {"spot": 12100.0, "step": 50},
             "RELIANCE": {"spot": 3100.0, "step": 20},
@@ -331,19 +360,32 @@ class NSEFetcher:
         cfg = symbol_configs.get(symbol, {"spot": 1500.0, "step": 20})
         spot = cfg["spot"]
         strike_step = cfg["step"]
+        
+        # Dynamic live price fetching for BSE indices
+        if symbol in ["SENSEX", "BANKEX"]:
+            live_spot = self._fetch_bse_spot_price(symbol)
+            if live_spot is not None:
+                spot = live_spot
             
         expiry_dates = []
         today = datetime.now()
         
-        # Generate next 4 Thursdays
+        # Weekly expiry days: Monday (0) for BANKEX, Friday (4) for SENSEX, Thursday (3) for others
+        target_weekday = 3
+        if symbol == "SENSEX":
+            target_weekday = 4
+        elif symbol == "BANKEX":
+            target_weekday = 0
+            
         days_ahead = 0
         while len(expiry_dates) < 4:
-            thursday = today + timedelta(days=days_ahead)
-            if thursday.weekday() == 3: # 3 = Thursday
-                expiry_dates.append(thursday.strftime("%d-%b-%Y"))
+            expiry_day = today + timedelta(days=days_ahead)
+            if expiry_day.weekday() == target_weekday:
+                expiry_dates.append(expiry_day.strftime("%d-%b-%Y"))
             days_ahead += 1
             
         selected_expiry = expiry if expiry in expiry_dates else expiry_dates[0]
+
         
         # Center option chain around spot
         atm_strike = int(round(spot / strike_step) * strike_step)
@@ -425,6 +467,310 @@ class NSEFetcher:
             "is_mock": True,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
+
+    def fetch_live_oi_spurts(self) -> dict:
+        """
+        Fetches live OI spurts from NSE. Falls back to mock data if it fails.
+        """
+        url = "https://www.nseindia.com/api/live-analysis-oi-spurts-underlyings"
+        headers = self.session.headers.copy()
+        headers.update({
+            "Accept": "application/json, text/plain, */*",
+            "Referer": "https://www.nseindia.com/market-data/oi-spurts",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+            "X-Requested-With": "XMLHttpRequest"
+        })
+
+        for attempt in range(2):
+            try:
+                if not self.cookies_initialized:
+                    self._init_cookies()
+                
+                logger.info(f"Fetching live OI spurts from NSE (Attempt {attempt+1})...")
+                res = self.session.get(url, headers=headers, cookies=self.cookies_dict, timeout=8)
+                if res.status_code == 200:
+                    payload = res.json()
+                    data_list = payload.get("data", [])
+                    if data_list:
+                        return {
+                            "data": data_list,
+                            "is_mock": False,
+                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        }
+                elif res.status_code in [401, 403]:
+                    logger.warning(f"Session blocked with code {res.status_code} during OI spurts fetch. Retrying cookie init.")
+                    self.cookies_initialized = False
+            except Exception as e:
+                logger.error(f"Error fetching live OI spurts: {e}")
+                self.cookies_initialized = False
+                time.sleep(0.5)
+
+        logger.warning("Failed to fetch live OI spurts. Triggering mock fallback.")
+        return self.generate_mock_oi_spurts()
+
+    def generate_mock_oi_spurts(self) -> dict:
+        """
+        Generates realistic mock OI spurts data for fallback.
+        """
+        mock_symbols = [
+            ("RELIANCE", 2450.50), ("HDFCBANK", 1680.20), ("INFY", 1520.40),
+            ("TCS", 3850.10), ("ICICIBANK", 1120.60), ("SBIN", 830.40),
+            ("BHARTIARTL", 1390.80), ("TATAMOTORS", 975.30), ("ITC", 425.20),
+            ("LT", 3550.00), ("AXISBANK", 1130.45), ("DIVISLAB", 7188.50),
+            ("PATANJALI", 347.00), ("KOTAKBANK", 1790.20), ("WIPRO", 480.15)
+        ]
+        
+        data_list = []
+        for sym, price in mock_symbols:
+            # Generate random but realistic open interest numbers
+            prev_oi = int(np.random.randint(15000, 150000))
+            # percentage change between 5% and 125%
+            pct_change = round(float(np.random.uniform(5.0, 125.0)), 2)
+            change_oi = int(prev_oi * (pct_change / 100.0))
+            latest_oi = prev_oi + change_oi
+            volume = int(latest_oi * np.random.uniform(2, 6))
+            
+            data_list.append({
+                "symbol": sym,
+                "latestOI": latest_oi,
+                "prevOI": prev_oi,
+                "changeInOI": change_oi,
+                "avgInOI": pct_change, # average in OI represents percent change in NSE payload
+                "volume": volume,
+                "underlyingValue": price
+            })
+            
+        # Sort by percent change descending
+        data_list.sort(key=lambda x: x["avgInOI"], reverse=True)
+        
+        return {
+            "data": data_list,
+            "is_mock": True,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+    def fetch_live_change_in_oi(self) -> dict:
+        """
+        Fetches live contract-level OI spurts (Change in Open Interest) from NSE.
+        Falls back to mock data if it fails.
+        """
+        url = "https://www.nseindia.com/api/live-analysis-oi-spurts-contracts"
+        headers = self.session.headers.copy()
+        headers.update({
+            "Accept": "application/json, text/plain, */*",
+            "Referer": "https://www.nseindia.com/market-data/change-in-open-interest",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+            "X-Requested-With": "XMLHttpRequest"
+        })
+
+        for attempt in range(2):
+            try:
+                if not self.cookies_initialized:
+                    self._init_cookies()
+                
+                logger.info(f"Fetching live Change in OI (contracts) from NSE (Attempt {attempt+1})...")
+                res = self.session.get(url, headers=headers, cookies=self.cookies_dict, timeout=10)
+                if res.status_code == 200:
+                    payload = res.json()
+                    data_list = payload.get("data", [])
+                    if data_list:
+                        return self._process_change_in_oi_payload(payload, is_mock=False)
+                elif res.status_code in [401, 403]:
+                    logger.warning(f"Session blocked with code {res.status_code} during Change in OI fetch. Retrying cookie init.")
+                    self.cookies_initialized = False
+            except Exception as e:
+                logger.error(f"Error fetching live Change in OI: {e}")
+                self.cookies_initialized = False
+                time.sleep(0.5)
+
+        logger.warning("Failed to fetch live Change in OI. Triggering mock fallback.")
+        return self.generate_mock_change_in_oi()
+
+    def _process_change_in_oi_payload(self, payload: dict, is_mock: bool = False) -> dict:
+        """Processes the raw contract-level OI spurts response and structures it."""
+        raw_data = payload.get("data", [])
+        timestamp = payload.get("timestamp", datetime.now().strftime("%d-%b-%Y %H:%M:%S"))
+        
+        long_buildup_raw = []
+        short_covering_raw = []
+        short_buildup_raw = []
+        long_unwinding_raw = []
+        
+        for item in raw_data:
+            if "Rise-in-OI-Rise" in item:
+                long_buildup_raw = item["Rise-in-OI-Rise"]
+            elif "Slide-in-OI-Rise" in item:
+                short_covering_raw = item["Slide-in-OI-Rise"]
+            elif "Rise-in-OI-Slide" in item:
+                short_buildup_raw = item["Rise-in-OI-Slide"]
+            elif "Slide-in-OI-Slide" in item:
+                long_unwinding_raw = item["Slide-in-OI-Slide"]
+                
+        def transform_records(raw_records):
+            transformed = []
+            for r in raw_records:
+                instrument = r.get("instrument", "")
+                is_index = "Index" in instrument or r.get("instrumentType") in ["FUTIDX", "OPTIDX"]
+                
+                transformed.append({
+                    "symbol": r.get("symbol"),
+                    "instrument_type": instrument,
+                    "expiry_date": r.get("expiryDate"),
+                    "strike_price": r.get("strikePrice"),
+                    "option_type": r.get("optionType"),
+                    "current_oi": r.get("latestOI"),
+                    "prev_oi": r.get("prevOI"),
+                    "change_in_oi": r.get("changeInOI"),
+                    "pct_change_in_oi": r.get("pChangeInOI"),
+                    "ltp": r.get("ltp"),
+                    "prev_close": r.get("prevClose"),
+                    "pct_change_in_ltp": r.get("pChange"),
+                    "volume": r.get("volume"),
+                    "turnover_value_lakhs": r.get("turnover"),
+                    "is_index": is_index
+                })
+            
+            # Sort: stocks first, then sorted by % change in OI descending
+            transformed.sort(key=lambda x: (x["is_index"], -abs(x["pct_change_in_oi"] or 0)))
+            return transformed
+
+        return {
+            "metadata": {
+                "timestamp": timestamp,
+                "total_long_buildup_records": len(long_buildup_raw),
+                "total_short_covering_records": len(short_covering_raw),
+                "total_short_buildup_records": len(short_buildup_raw),
+                "total_long_unwinding_records": len(long_unwinding_raw),
+                "extracted_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            },
+            "long_buildup": transform_records(long_buildup_raw),
+            "short_covering": transform_records(short_covering_raw),
+            "short_buildup": transform_records(short_buildup_raw),
+            "long_unwinding": transform_records(long_unwinding_raw),
+            "is_mock": is_mock,
+            "notes": (
+                "Data is fetched from NSE India for analytical purposes only. "
+                "This is not investment advice or trading recommendations. "
+                "Stocks are prioritized over index derivatives and sorted by highest % Change in OI descending."
+            )
+        }
+
+    def generate_mock_change_in_oi(self) -> dict:
+        """Generates realistic mock data for Change in Open Interest across all 4 categories."""
+        mock_assets = [
+            ("RELIANCE", 2450.0, False), ("HDFCBANK", 1680.0, False), ("INFY", 1520.0, False),
+            ("TCS", 3850.0, False), ("ICICIBANK", 1120.0, False), ("SBIN", 830.0, False),
+            ("BHARTIARTL", 1390.0, False), ("TATAMOTORS", 975.0, False), ("ITC", 425.0, False),
+            ("LT", 3550.0, False), ("AXISBANK", 1130.0, False), ("KOTAKBANK", 1790.0, False),
+            ("AUROPHARMA", 1100.0, False), ("AMBUJACEM", 550.0, False), ("JIOFIN", 320.0, False),
+            ("NIFTY", 24187.7, True), ("BANKNIFTY", 57835.3, True)
+        ]
+        
+        long_buildup_raw = []
+        short_covering_raw = []
+        short_buildup_raw = []
+        long_unwinding_raw = []
+        
+        # Current expiry date (upcoming Thursday)
+        expiry_curr = (datetime.now() + timedelta(days=(3 - datetime.now().weekday()) % 7)).strftime("%d-%b-%Y")
+        
+        for sym, spot, is_index in mock_assets:
+            for i in range(1, 3):
+                strike_step = 100 if is_index else 50
+                strike = int(round(spot / strike_step) * strike_step) + (i - 1) * strike_step
+                option_type = "Call" if i == 1 else "Put"
+                instrument_type = "Index Options" if is_index else "Stock Options"
+                instrument_code = "OPTIDX" if is_index else "OPTSTK"
+                
+                # We distribute simulated data among the 4 categories
+                category_choice = np.random.choice(["long_buildup", "short_covering", "short_buildup", "long_unwinding"])
+                
+                if category_choice == "long_buildup":
+                    # Long Buildup: OI rises, price rises
+                    pct_oi = round(float(np.random.uniform(5.0, 150.0)), 2)
+                    pct_price = round(float(np.random.uniform(2.0, 80.0)), 2)
+                    prev_oi = int(np.random.randint(1000, 50000))
+                    change_oi = int(prev_oi * (pct_oi / 100.0))
+                    latest_oi = prev_oi + change_oi
+                    prev_close = round(float(np.random.uniform(10.0, 500.0)), 2)
+                    ltp = round(prev_close * (1 + pct_price / 100.0), 2)
+                    
+                    long_buildup_raw.append({
+                        "symbol": sym, "expiryDate": expiry_curr, "instrument": instrument_type,
+                        "latestOI": latest_oi, "prevOI": prev_oi, "changeInOI": change_oi, "pChangeInOI": pct_oi,
+                        "ltp": ltp, "prevClose": prev_close, "pChange": pct_price, "strikePrice": strike,
+                        "optionType": option_type, "volume": int(latest_oi * np.random.uniform(1.5, 4.0)),
+                        "turnover": round(latest_oi * ltp * 0.0001, 2), "instrumentType": instrument_code
+                    })
+                elif category_choice == "short_covering":
+                    # Short Covering: OI falls, price rises
+                    pct_oi = -round(float(np.random.uniform(5.0, 60.0)), 2)
+                    pct_price = round(float(np.random.uniform(5.0, 120.0)), 2)
+                    prev_oi = int(np.random.randint(2000, 80000))
+                    change_oi = int(prev_oi * (pct_oi / 100.0))
+                    latest_oi = prev_oi + change_oi
+                    prev_close = round(float(np.random.uniform(5.0, 200.0)), 2)
+                    ltp = round(prev_close * (1 + pct_price / 100.0), 2)
+                    
+                    short_covering_raw.append({
+                        "symbol": sym, "expiryDate": expiry_curr, "instrument": instrument_type,
+                        "latestOI": latest_oi, "prevOI": prev_oi, "changeInOI": change_oi, "pChangeInOI": pct_oi,
+                        "ltp": ltp, "prevClose": prev_close, "pChange": pct_price, "strikePrice": strike,
+                        "optionType": option_type, "volume": int(latest_oi * np.random.uniform(2.0, 5.0)),
+                        "turnover": round(latest_oi * ltp * 0.0001, 2), "instrumentType": instrument_code
+                    })
+                elif category_choice == "short_buildup":
+                    # Short Buildup: OI rises, price falls
+                    pct_oi = round(float(np.random.uniform(5.0, 120.0)), 2)
+                    pct_price = -round(float(np.random.uniform(2.0, 50.0)), 2)
+                    prev_oi = int(np.random.randint(1500, 60000))
+                    change_oi = int(prev_oi * (pct_oi / 100.0))
+                    latest_oi = prev_oi + change_oi
+                    prev_close = round(float(np.random.uniform(15.0, 400.0)), 2)
+                    ltp = round(prev_close * (1 + pct_price / 100.0), 2)
+                    
+                    short_buildup_raw.append({
+                        "symbol": sym, "expiryDate": expiry_curr, "instrument": instrument_type,
+                        "latestOI": latest_oi, "prevOI": prev_oi, "changeInOI": change_oi, "pChangeInOI": pct_oi,
+                        "ltp": ltp, "prevClose": prev_close, "pChange": pct_price, "strikePrice": strike,
+                        "optionType": option_type, "volume": int(latest_oi * np.random.uniform(1.2, 3.5)),
+                        "turnover": round(latest_oi * ltp * 0.0001, 2), "instrumentType": instrument_code
+                    })
+                else:
+                    # Long Unwinding: OI falls, price falls
+                    pct_oi = -round(float(np.random.uniform(5.0, 55.0)), 2)
+                    pct_price = -round(float(np.random.uniform(2.0, 60.0)), 2)
+                    prev_oi = int(np.random.randint(1200, 70000))
+                    change_oi = int(prev_oi * (pct_oi / 100.0))
+                    latest_oi = prev_oi + change_oi
+                    prev_close = round(float(np.random.uniform(8.0, 300.0)), 2)
+                    ltp = round(prev_close * (1 + pct_price / 100.0), 2)
+                    
+                    long_unwinding_raw.append({
+                        "symbol": sym, "expiryDate": expiry_curr, "instrument": instrument_type,
+                        "latestOI": latest_oi, "prevOI": prev_oi, "changeInOI": change_oi, "pChangeInOI": pct_oi,
+                        "ltp": ltp, "prevClose": prev_close, "pChange": pct_price, "strikePrice": strike,
+                        "optionType": option_type, "volume": int(latest_oi * np.random.uniform(1.8, 4.2)),
+                        "turnover": round(latest_oi * ltp * 0.0001, 2), "instrumentType": instrument_code
+                    })
+                    
+        mock_payload = {
+            "timestamp": datetime.now().strftime("%d-%b-%Y %H:%M:%S"),
+            "data": [
+                {"Rise-in-OI-Rise": long_buildup_raw},
+                {"Slide-in-OI-Rise": short_covering_raw},
+                {"Rise-in-OI-Slide": short_buildup_raw},
+                {"Slide-in-OI-Slide": long_unwinding_raw}
+            ]
+        }
+        return self._process_change_in_oi_payload(mock_payload, is_mock=True)
+
+
+
 
 # Module level fetcher instance
 fetcher = NSEFetcher()

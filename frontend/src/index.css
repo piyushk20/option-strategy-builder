@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   /* Design Tokens */
   --color-primary-100: #e0f2fe;
   --color-primary-500: #0ea5e9;
@@ -494,3 +494,90 @@ button.outline:hover {
 .metric-value.positive { color: var(--color-success); }
 .metric-value.negative { color: var(--color-error); }
 .metric-value.neutral { color: var(--color-primary-500); }
+
+/* Progress Bar and Animations */
+.progress-bar-container {
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.progress-bar-filler {
+  box-shadow: 0 0 8px var(--color-primary-500);
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* ─── Breakout Scanner: Strength Badges ─────────────────────────────── */
+.strength-badge {
+  display: inline-block;
+  padding: 0.18rem 0.55rem;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-family: 'Outfit', sans-serif;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.strength-badge.yr2 {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.strength-badge.yr3 {
+  background: rgba(20, 184, 166, 0.15);
+  color: #2dd4bf;
+  border: 1px solid rgba(20, 184, 166, 0.3);
+}
+
+.strength-badge.yr5 {
+  background: rgba(234, 179, 8, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+.strength-badge.yr7plus {
+  background: rgba(139, 92, 246, 0.2);
+  color: #a78bfa;
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  box-shadow: 0 0 8px rgba(139, 92, 246, 0.2);
+}
+
+/* ─── Lookback Pill Chips ────────────────────────────────────────────── */
+.lookback-pill {
+  display: inline-block;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  background: rgba(124, 58, 237, 0.12);
+  color: #c4b5fd;
+  border: 1px solid rgba(124, 58, 237, 0.25);
+  white-space: nowrap;
+}
+
+/* ─── F&O Indicator ─────────────────────────────────────────────────── */
+.fo-dot {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  border-radius: 12px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  letter-spacing: 0.03em;
+}

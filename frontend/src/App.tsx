@@ -95,6 +95,67 @@ interface PayoffResponse {
   greeks: PortfolioGreeks;
 }
 
+interface NdayResult {
+  symbol: string;
+  name: string;
+  industry: string;
+  close: number;
+  high: number;
+  change_pct: number;
+  matched_lookbacks: number[];
+  max_lookback_hit: number;
+  years_equivalent: number;
+  is_fo: boolean;
+}
+
+interface OiSpurtItem {
+  symbol: string;
+  latestOI: number;
+  prevOI: number;
+  changeInOI: number;
+  avgInOI: number; // % change in OI
+  volume: number;
+  underlyingValue: number; // close stock price
+}
+
+interface ChangeInOiRecord {
+  symbol: string;
+  instrument_type: string;
+  expiry_date: string;
+  strike_price: number;
+  option_type: string;
+  current_oi: number;
+  prev_oi: number;
+  change_in_oi: number;
+  pct_change_in_oi: number;
+  ltp: number;
+  prev_close: number;
+  pct_change_in_ltp: number;
+  volume: number;
+  turnover_value_lakhs: number;
+  is_index: boolean;
+}
+
+interface ChangeInOiResponse {
+  metadata: {
+    timestamp: string;
+    total_long_buildup_records: number;
+    total_short_covering_records: number;
+    total_short_buildup_records: number;
+    total_long_unwinding_records: number;
+    extracted_at: string;
+  };
+  long_buildup: ChangeInOiRecord[];
+  short_covering: ChangeInOiRecord[];
+  short_buildup: ChangeInOiRecord[];
+  long_unwinding: ChangeInOiRecord[];
+  is_mock: boolean;
+  notes: string;
+}
+
+
+
+
 // Official NSE F&O lot sizes (as of July 2025)
 const LOT_SIZES: Record<string, number> = {
   '360ONE': 500,
@@ -125,6 +186,7 @@ const LOT_SIZES: Record<string, number> = {
   'BANKBARODA': 2925,
   'BANKINDIA': 5200,
   'BANKNIFTY': 30,
+  'BANKEX': 15,
   'BDL': 425,
   'BEL': 1425,
   'BHARATFORG': 500,
@@ -277,6 +339,7 @@ const LOT_SIZES: Record<string, number> = {
   'SBICARD': 800,
   'SBILIFE': 375,
   'SBIN': 750,
+  'SENSEX': 20,
   'SHREECEM': 25,
   'SHRIRAMFIN': 825,
   'SIEMENS': 175,
@@ -370,6 +433,275 @@ export default function App() {
   const [hoveredPoint, setHoveredPoint] = useState<PayoffPoint | null>(null);
   const [hoverX, setHoverX] = useState<number>(0);
   const [hoverY, setHoverY] = useState<number>(0);
+
+  // Navigation
+  const [activeTab, setActiveTab] = useState<'workbench' | 'scanner' | 'breakout' | 'oi_spurts' | 'change_in_oi'>('workbench');
+
+  // Scanner States
+  const [scannerUniverse, setScannerUniverse] = useState<'nifty_fo' | 'nifty_500'>('nifty_fo');
+  const [scanRsiLen, setScanRsiLen] = useState<number>(14);
+  const [scanUseVwap, setScanUseVwap] = useState<boolean>(true);
+  const [scanVwapSmoothing, setScanVwapSmoothing] = useState<number>(20);
+  const [scanVwapAnchor, setScanVwapAnchor] = useState<string>('year');
+  const [scanMaLen, setScanMaLen] = useState<number>(50);
+  const [scanVolMaLen, setScanVolMaLen] = useState<number>(20);
+  const [scanMinVolMultiplier, setScanMinVolMultiplier] = useState<number>(1.5);
+  const [scanAtrLen, setScanAtrLen] = useState<number>(14);
+
+  const [scanStatus, setScanStatus] = useState<'idle' | 'running' | 'completed' | 'failed'>('idle');
+  const [scanProgress, setScanProgress] = useState<number>(0);
+  const [scanTotal, setScanTotal] = useState<number>(0);
+  const [scanCurrentSymbol, setScanCurrentSymbol] = useState<string>('');
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanResults, setScanResults] = useState<any[]>([]);
+  const [scanFilter, setScanFilter] = useState<string>('');
+  const [pollingInterval, setPollingInterval] = useState<number | null>(null);
+
+  // N-Day High Scanner States
+  const [ndayUniverse, setNdayUniverse] = useState<'nifty_fo' | 'nifty_500'>('nifty_fo');
+  const [ndayLookbacks, setNdayLookbacks] = useState<number[]>([520, 780, 1040, 1300, 1560, 1820, 2080, 2340, 2600]);
+  const [ndayStatus, setNdayStatus] = useState<'idle' | 'running' | 'completed' | 'failed'>('idle');
+  const [ndayProgress, setNdayProgress] = useState<number>(0);
+  const [ndayTotal, setNdayTotal] = useState<number>(0);
+  const [ndayCurrentBatch, setNdayCurrentBatch] = useState<string>('');
+  const [ndayError, setNdayError] = useState<string | null>(null);
+  const [ndayResults, setNdayResults] = useState<NdayResult[]>([]);
+  const [ndayFilter, setNdayFilter] = useState<string>('');
+  const [ndayMinYears, setNdayMinYears] = useState<number>(2);
+  const [ndayPollingInterval, setNdayPollingInterval] = useState<number | null>(null);
+
+  // Top 10 OI Change States
+  const [oiSpurts, setOiSpurts] = useState<OiSpurtItem[]>([]);
+  const [oiLoading, setOiLoading] = useState<boolean>(false);
+  const [oiError, setOiError] = useState<string | null>(null);
+  const [oiSortBy, setOiSortBy] = useState<'percent' | 'absolute'>('percent');
+  const [oiTimestamp, setOiTimestamp] = useState<string>('');
+  const [oiIsMock, setOiIsMock] = useState<boolean>(false);
+
+  // Change in Open Interest (Contracts) States
+  const [changeInOiData, setChangeInOiData] = useState<ChangeInOiResponse | null>(null);
+  const [changeInOiLoading, setChangeInOiLoading] = useState<boolean>(false);
+  const [changeInOiError, setChangeInOiError] = useState<string | null>(null);
+  const [changeInOiFilter, setChangeInOiFilter] = useState<string>('');
+  const [changeInOiSegment, setChangeInOiSegment] = useState<'all' | 'stocks' | 'indices'>('all');
+
+
+  const startScan = async () => {
+    setScanStatus('running');
+    setScanProgress(0);
+    setScanTotal(0);
+    setScanCurrentSymbol('Initializing...');
+    setScanError(null);
+    setScanResults([]);
+
+    try {
+      const res = await fetch('/api/scanner/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          universe: scannerUniverse,
+          rsi_len: scanRsiLen,
+          use_vwap_adjusted_rsi: scanUseVwap,
+          vwap_smoothing: scanVwapSmoothing,
+          vwap_anchor: scanVwapAnchor,
+          ma_len: scanMaLen,
+          vol_ma_len: scanVolMaLen,
+          min_vol_multiplier: scanMinVolMultiplier,
+          atr_len: scanAtrLen
+        })
+      });
+
+      const data = await res.json();
+      if (data.status === 'completed') {
+        setScanStatus('completed');
+        setScanProgress(100);
+        setScanTotal(100);
+        setScanCurrentSymbol('');
+        fetchScanResults();
+      } else {
+        const intervalId = window.setInterval(pollScanStatus, 800);
+        setPollingInterval(intervalId);
+      }
+    } catch (err: any) {
+      setScanStatus('failed');
+      setScanError(err.message || 'Failed to start scan.');
+    }
+  };
+
+  const pollScanStatus = async () => {
+    try {
+      const res = await fetch('/api/scanner/status');
+      const data = await res.json();
+      
+      setScanStatus(data.status);
+      setScanProgress(data.progress);
+      setScanTotal(data.total);
+      setScanCurrentSymbol(data.current_symbol || '');
+      setScanError(data.error);
+
+      if (data.status === 'completed') {
+        clearPolling();
+        fetchScanResults();
+      } else if (data.status === 'failed') {
+        clearPolling();
+      }
+    } catch (err: any) {
+      clearPolling();
+      setScanStatus('failed');
+      setScanError(err.message || 'Error checking scan status.');
+    }
+  };
+
+  const fetchScanResults = async () => {
+    try {
+      const res = await fetch('/api/scanner/results');
+      const data = await res.json();
+      setScanResults(data);
+    } catch (err: any) {
+      setScanError(err.message || 'Failed to load results.');
+    }
+  };
+
+  const clearPolling = () => {
+    if (pollingInterval) {
+      window.clearInterval(pollingInterval);
+      setPollingInterval(null);
+    }
+  };
+
+  // Clear polling interval on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingInterval) window.clearInterval(pollingInterval);
+    };
+  }, [pollingInterval]);
+
+  // ── N-Day High Scanner API functions ────────────────────────────────────
+  const toggleNdayLookback = (n: number) => {
+    setNdayLookbacks(prev =>
+      prev.includes(n) ? prev.filter(x => x !== n) : [...prev, n].sort((a, b) => a - b)
+    );
+  };
+
+  const fetchNdayResults = async () => {
+    try {
+      const res = await fetch('/api/breakout/results');
+      const data = await res.json();
+      setNdayResults(data);
+    } catch (err: any) {
+      setNdayError(err.message || 'Failed to load breakout results.');
+    }
+  };
+
+  const clearNdayPolling = () => {
+    if (ndayPollingInterval) {
+      window.clearInterval(ndayPollingInterval);
+      setNdayPollingInterval(null);
+    }
+  };
+
+  const pollNdayStatus = async () => {
+    try {
+      const res = await fetch('/api/breakout/status');
+      const data = await res.json();
+      setNdayStatus(data.status);
+      setNdayProgress(data.progress);
+      setNdayTotal(data.total);
+      setNdayCurrentBatch(data.current_batch || '');
+      setNdayError(data.error);
+      if (data.status === 'completed') {
+        clearNdayPolling();
+        fetchNdayResults();
+      } else if (data.status === 'failed') {
+        clearNdayPolling();
+      }
+    } catch (err: any) {
+      clearNdayPolling();
+      setNdayStatus('failed');
+      setNdayError(err.message || 'Error checking breakout scan status.');
+    }
+  };
+
+  const startNdayScan = async () => {
+    setNdayStatus('running');
+    setNdayProgress(0);
+    setNdayTotal(0);
+    setNdayCurrentBatch('Initializing...');
+    setNdayError(null);
+    setNdayResults([]);
+    try {
+      const res = await fetch('/api/breakout/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ universe: ndayUniverse, lookbacks: ndayLookbacks })
+      });
+      const data = await res.json();
+      if (data.status === 'completed') {
+        setNdayStatus('completed');
+        setNdayProgress(100);
+        setNdayTotal(100);
+        setNdayCurrentBatch('');
+        fetchNdayResults();
+      } else {
+        const intervalId = window.setInterval(pollNdayStatus, 1200);
+        setNdayPollingInterval(intervalId);
+      }
+    } catch (err: any) {
+      setNdayStatus('failed');
+      setNdayError(err.message || 'Failed to start breakout scan.');
+    }
+  };
+
+  useEffect(() => {
+    return () => { if (ndayPollingInterval) window.clearInterval(ndayPollingInterval); };
+  }, [ndayPollingInterval]);
+
+  // ── Top 10 OI Change API functions ──────────────────────────────────────
+  const fetchOiSpurts = async () => {
+    setOiLoading(true);
+    setOiError(null);
+    try {
+      const res = await fetch('/api/nse/oi-spurts');
+      if (!res.ok) throw new Error(`Status ${res.status}: Failed to pull OI spurts`);
+      const payload = await res.json();
+      setOiSpurts(payload.data || []);
+      setOiTimestamp(payload.timestamp || '');
+      setOiIsMock(payload.is_mock || false);
+    } catch (err: any) {
+      setOiError(err.message || 'Failed to fetch OI spurts from backend.');
+    } finally {
+      setOiLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'oi_spurts') {
+      fetchOiSpurts();
+    }
+  }, [activeTab]);
+
+  // ── Change in OI API functions ──────────────────────────────────────────
+  const fetchChangeInOi = async () => {
+    setChangeInOiLoading(true);
+    setChangeInOiError(null);
+    try {
+      const res = await fetch('/api/nse/change-in-oi');
+      if (!res.ok) throw new Error(`Status ${res.status}: Failed to pull Change in OI data`);
+      const payload = await res.json();
+      setChangeInOiData(payload);
+    } catch (err: any) {
+      setChangeInOiError(err.message || 'Failed to fetch Change in OI from backend.');
+    } finally {
+      setChangeInOiLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'change_in_oi') {
+      fetchChangeInOi();
+    }
+  }, [activeTab]);
+
 
   // Fetch Live NSE Option Chain
   const fetchOptionChain = async (sym: string, exp: string = '') => {
@@ -870,71 +1202,167 @@ export default function App() {
   return (
     <div style={{ paddingBottom: '3rem' }}>
       <header>
-        <h1>
-          <TrendingUp size={24} style={{ color: '#60a5fa' }} />
-          Elite Option Strategy Builder
-        </h1>
-        
-        <div style={{ display: 'flex', gap: '1.2rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-          {/* Symbol Selector Dropdown */}
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.3rem', fontWeight: 600 }}>Underlying Asset</span>
-            <select
-              value={symbol}
-              onChange={(e) => {
-                const newSym = e.target.value;
-                setSymbol(newSym);
-                setSelectedExpiry('');
-                fetchOptionChain(newSym, '');
+        <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
+          <h1 style={{ margin: 0 }}>
+            <TrendingUp size={24} style={{ color: '#60a5fa' }} />
+            Elite Option Strategy Builder
+          </h1>
+          
+          <div className="tab-navigation" style={{ display: 'flex', gap: '0.5rem', background: 'rgba(255,255,255,0.05)', padding: '0.3rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+            <button 
+              onClick={() => setActiveTab('workbench')}
+              style={{
+                background: activeTab === 'workbench' ? 'var(--color-primary-500)' : 'transparent',
+                color: activeTab === 'workbench' ? 'white' : 'var(--text-muted)',
+                border: 'none',
+                padding: '0.4rem 1rem',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                transition: 'all 0.2s'
               }}
-              style={{ width: '220px', background: '#111827', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'white', padding: '0.5rem' }}
             >
-              {AVAILABLE_SYMBOLS.map(sym => (
-                <option key={sym.value} value={sym.value}>{sym.label}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Expiry Selector Dropdown */}
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.3rem', fontWeight: 600 }}>Expiry Date</span>
-            <select
-              value={selectedExpiry}
-              onChange={(e) => {
-                const newExp = e.target.value;
-                setSelectedExpiry(newExp);
-                fetchOptionChain(symbol, newExp);
+              Option Workbench
+            </button>
+            <button 
+              onClick={() => setActiveTab('scanner')}
+              style={{
+                background: activeTab === 'scanner' ? 'var(--color-primary-500)' : 'transparent',
+                color: activeTab === 'scanner' ? 'white' : 'var(--text-muted)',
+                border: 'none',
+                padding: '0.4rem 1rem',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                transition: 'all 0.2s'
               }}
-              disabled={!optionChain || optionChain.expiry_dates.length === 0}
-              style={{ width: '250px', background: '#111827', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'white', padding: '0.5rem' }}
             >
-              {!optionChain ? (
-                <option value="">No expiries loaded</option>
-              ) : (
-                optionChain.expiry_dates.slice(0, 3).map((date, index) => {
-                  let label = '';
-                  if (index === 0) label = `Current Expiry (${date})`;
-                  else if (index === 1) label = `Next Expiry (${date})`;
-                  else label = `Far Expiry (${date})`;
-                  return (
-                    <option key={date} value={date}>{label}</option>
-                  );
-                })
-              )}
-            </select>
+              Cardwell RSI Scanner
+            </button>
+            <button 
+              onClick={() => setActiveTab('breakout')}
+              style={{
+                background: activeTab === 'breakout' ? 'linear-gradient(90deg, #7c3aed, #6366f1)' : 'transparent',
+                color: activeTab === 'breakout' ? 'white' : 'var(--text-muted)',
+                border: activeTab === 'breakout' ? 'none' : '1px solid transparent',
+                padding: '0.4rem 1rem',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                transition: 'all 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.3rem'
+              }}
+            >
+              📈 Breakout Scanner
+            </button>
+            <button 
+              onClick={() => setActiveTab('oi_spurts')}
+              style={{
+                background: activeTab === 'oi_spurts' ? 'linear-gradient(90deg, #059669, #10b981)' : 'transparent',
+                color: activeTab === 'oi_spurts' ? 'white' : 'var(--text-muted)',
+                border: activeTab === 'oi_spurts' ? 'none' : '1px solid transparent',
+                padding: '0.4rem 1rem',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                transition: 'all 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.3rem'
+              }}
+            >
+              📊 Top 10 OI Spurts
+            </button>
+            <button 
+              onClick={() => setActiveTab('change_in_oi')}
+              style={{
+                background: activeTab === 'change_in_oi' ? 'linear-gradient(90deg, #2563eb, #3b82f6)' : 'transparent',
+                color: activeTab === 'change_in_oi' ? 'white' : 'var(--text-muted)',
+                border: activeTab === 'change_in_oi' ? 'none' : '1px solid transparent',
+                padding: '0.4rem 1rem',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                transition: 'all 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.3rem'
+              }}
+            >
+              📊 Change in OI
+            </button>
           </div>
-
-          {/* Refresh Button */}
-          <button 
-            className="outline" 
-            onClick={() => fetchOptionChain(symbol, selectedExpiry)}
-            disabled={chainLoading}
-            style={{ height: '38px', padding: '0 1rem' }}
-            title="Refresh F&O chain"
-          >
-            {chainLoading ? <RefreshCw className="animate-spin" size={16} /> : <RefreshCw size={16} />}
-          </button>
         </div>
+        
+        {activeTab === 'workbench' && (
+          <div style={{ display: 'flex', gap: '1.2rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            {/* Symbol Selector Dropdown */}
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.3rem', fontWeight: 600 }}>Underlying Asset</span>
+              <select
+                value={symbol}
+                onChange={(e) => {
+                  const newSym = e.target.value;
+                  setSymbol(newSym);
+                  setSelectedExpiry('');
+                  fetchOptionChain(newSym, '');
+                }}
+                style={{ width: '220px', background: '#111827', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'white', padding: '0.5rem' }}
+              >
+                {AVAILABLE_SYMBOLS.map(sym => (
+                  <option key={sym.value} value={sym.value}>{sym.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Expiry Selector Dropdown */}
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.3rem', fontWeight: 600 }}>Expiry Date</span>
+              <select
+                value={selectedExpiry}
+                onChange={(e) => {
+                  const newExp = e.target.value;
+                  setSelectedExpiry(newExp);
+                  fetchOptionChain(symbol, newExp);
+                }}
+                disabled={!optionChain || optionChain.expiry_dates.length === 0}
+                style={{ width: '250px', background: '#111827', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'white', padding: '0.5rem' }}
+              >
+                {!optionChain ? (
+                  <option value="">No expiries loaded</option>
+                ) : (
+                  optionChain.expiry_dates.slice(0, 3).map((date, index) => {
+                    let label = '';
+                    if (index === 0) label = `Current Expiry (${date})`;
+                    else if (index === 1) label = `Next Expiry (${date})`;
+                    else label = `Far Expiry (${date})`;
+                    return (
+                      <option key={date} value={date}>{label}</option>
+                    );
+                  })
+                )}
+              </select>
+            </div>
+
+            {/* Refresh Button */}
+            <button 
+              className="outline" 
+              onClick={() => fetchOptionChain(symbol, selectedExpiry)}
+              disabled={chainLoading}
+              style={{ height: '38px', padding: '0 1rem' }}
+              title="Refresh F&O chain"
+            >
+              {chainLoading ? <RefreshCw className="animate-spin" size={16} /> : <RefreshCw size={16} />}
+            </button>
+          </div>
+        )}
       </header>
 
       {error && (
@@ -946,89 +1374,344 @@ export default function App() {
 
       <div className="container">
         {/* SIDEBAR PARAMETERS */}
-        <aside style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          <div className="card">
-            <h3 className="card-title">
-              <Sliders size={18} /> Model Parameters
-            </h3>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>India VIX %</label>
-                <input 
-                  type="number" 
-                  step="0.1" 
-                  value={vix} 
-                  onChange={(e) => setVix(parseFloat(e.target.value))} 
-                  style={{ width: '100%' }}
-                />
-              </div>
+        {activeTab === 'workbench' && (
+          <aside style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div className="card">
+              <h3 className="card-title">
+                <Sliders size={18} /> Model Parameters
+              </h3>
               
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>Market Trend Bias</label>
-                <select 
-                  value={trendOverride} 
-                  onChange={(e) => setTrendOverride(e.target.value)}
-                  style={{ width: '100%' }}
-                >
-                  <option value="">Auto Detect</option>
-                  <option value="Strong Trend">Strong Trend</option>
-                  <option value="Weak Trend">Weak Trend</option>
-                  <option value="Range-Bound">Range-Bound</option>
-                </select>
-              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>India VIX %</label>
+                  <input 
+                    type="number" 
+                    step="0.1" 
+                    value={vix} 
+                    onChange={(e) => setVix(parseFloat(e.target.value))} 
+                    style={{ width: '100%' }}
+                  />
+                </div>
+                
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>Market Trend Bias</label>
+                  <select 
+                    value={trendOverride} 
+                    onChange={(e) => setTrendOverride(e.target.value)}
+                    style={{ width: '100%' }}
+                  >
+                    <option value="">Auto Detect</option>
+                    <option value="Strong Trend">Strong Trend</option>
+                    <option value="Weak Trend">Weak Trend</option>
+                    <option value="Range-Bound">Range-Bound</option>
+                  </select>
+                </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>Risk-Free Rate (r)</label>
-                <input 
-                  type="number" 
-                  step="0.01" 
-                  value={interestRate} 
-                  onChange={(e) => setInterestRate(parseFloat(e.target.value))} 
-                  style={{ width: '100%' }}
-                />
-              </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>Risk-Free Rate (r)</label>
+                  <input 
+                    type="number" 
+                    step="0.01" 
+                    value={interestRate} 
+                    onChange={(e) => setInterestRate(parseFloat(e.target.value))} 
+                    style={{ width: '100%' }}
+                  />
+                </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>Pricing Volatility (v)</label>
-                <input 
-                  type="number" 
-                  step="0.01" 
-                  value={volatility} 
-                  onChange={(e) => setVolatility(parseFloat(e.target.value))} 
-                  style={{ width: '100%' }}
-                />
-              </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>Pricing Volatility (v)</label>
+                  <input 
+                    type="number" 
+                    step="0.01" 
+                    value={volatility} 
+                    onChange={(e) => setVolatility(parseFloat(e.target.value))} 
+                    style={{ width: '100%' }}
+                  />
+                </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>Days to Expiration (t)</label>
-                <input 
-                  type="number" 
-                  value={daysToExpiry} 
-                  onChange={(e) => setDaysToExpiry(parseInt(e.target.value))} 
-                  style={{ width: '100%' }}
-                />
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>Days to Expiration (t)</label>
+                  <input 
+                    type="number" 
+                    value={daysToExpiry} 
+                    onChange={(e) => setDaysToExpiry(parseInt(e.target.value))} 
+                    style={{ width: '100%' }}
+                  />
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="card">
-            <h3 className="card-title">Predefined Templates</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <button className="outline" onClick={() => loadStrategySetup({ name: 'Covered Call', rank: 1 } as any)}>Covered Call</button>
-              <button className="outline" onClick={() => loadStrategySetup({ name: 'Bull Call Debit Spread', rank: 1 } as any)}>Bull Call Spread</button>
-              <button className="outline" onClick={() => loadStrategySetup({ name: 'Bull Put Credit Spread', rank: 1 } as any)}>Bull Put Spread</button>
-              <button className="outline" onClick={() => loadStrategySetup({ name: 'Iron Condor', rank: 1 } as any)}>Iron Condor</button>
-              <button className="outline" onClick={() => loadStrategySetup({ name: 'Short Straddle', rank: 1 } as any)}>Short Straddle</button>
-              <button className="outline" onClick={() => loadStrategySetup({ name: 'Call Ratio Backspread', rank: 1 } as any)}>Ratio Backspread</button>
-              <button className="outline" onClick={() => loadStrategySetup({ name: 'Long Zebra', rank: 1 } as any)}>Long Z.E.B.R.A</button>
-              <button className="outline" onClick={() => loadStrategySetup({ name: 'Long Synthetic Future', rank: 1 } as any)}>Synthetic Future</button>
+            <div className="card">
+              <h3 className="card-title">Predefined Templates</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <button className="outline" onClick={() => loadStrategySetup({ name: 'Covered Call', rank: 1 } as any)}>Covered Call</button>
+                <button className="outline" onClick={() => loadStrategySetup({ name: 'Bull Call Debit Spread', rank: 1 } as any)}>Bull Call Spread</button>
+                <button className="outline" onClick={() => loadStrategySetup({ name: 'Bull Put Credit Spread', rank: 1 } as any)}>Bull Put Spread</button>
+                <button className="outline" onClick={() => loadStrategySetup({ name: 'Iron Condor', rank: 1 } as any)}>Iron Condor</button>
+                <button className="outline" onClick={() => loadStrategySetup({ name: 'Short Straddle', rank: 1 } as any)}>Short Straddle</button>
+                <button className="outline" onClick={() => loadStrategySetup({ name: 'Call Ratio Backspread', rank: 1 } as any)}>Ratio Backspread</button>
+                <button className="outline" onClick={() => loadStrategySetup({ name: 'Long Zebra', rank: 1 } as any)}>Long Z.E.B.R.A</button>
+                <button className="outline" onClick={() => loadStrategySetup({ name: 'Long Synthetic Future', rank: 1 } as any)}>Synthetic Future</button>
+              </div>
             </div>
-          </div>
-        </aside>
+          </aside>
+        )}
+
+        {activeTab === 'scanner' && (
+          <aside style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div className="card">
+              <h3 className="card-title">
+                <Sliders size={18} /> Scanner Settings
+              </h3>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>RSI Length</label>
+                  <input 
+                    type="number" 
+                    value={scanRsiLen} 
+                    onChange={(e) => setScanRsiLen(parseInt(e.target.value) || 14)} 
+                    style={{ width: '100%' }}
+                  />
+                </div>
+                
+                <div style={{ margin: '0.3rem 0' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={scanUseVwap} 
+                      onChange={(e) => setScanUseVwap(e.target.checked)} 
+                    />
+                    Use VWAP Adjusted RSI
+                  </label>
+                </div>
+
+                {scanUseVwap && (
+                  <>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>VWAP Smoothing</label>
+                      <input 
+                        type="number" 
+                        value={scanVwapSmoothing} 
+                        onChange={(e) => setScanVwapSmoothing(parseInt(e.target.value) || 20)} 
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>VWAP Anchor</label>
+                      <select 
+                        value={scanVwapAnchor} 
+                        onChange={(e) => setScanVwapAnchor(e.target.value)} 
+                        style={{ width: '100%', background: '#111827', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'white', padding: '0.5rem' }}
+                      >
+                        <option value="year">Calendar Year</option>
+                        <option value="month">Calendar Month</option>
+                        <option value="week">Calendar Week</option>
+                      </select>
+                    </div>
+                  </>
+                )}
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>MA Length (SMA)</label>
+                  <input 
+                    type="number" 
+                    value={scanMaLen} 
+                    onChange={(e) => setScanMaLen(parseInt(e.target.value) || 50)} 
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>Volume MA Length</label>
+                  <input 
+                    type="number" 
+                    value={scanVolMaLen} 
+                    onChange={(e) => setScanVolMaLen(parseInt(e.target.value) || 20)} 
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>Min Volume Multiplier</label>
+                  <input 
+                    type="number" 
+                    step="0.1"
+                    value={scanMinVolMultiplier} 
+                    onChange={(e) => setScanMinVolMultiplier(parseFloat(e.target.value) || 1.5)} 
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>ATR Length</label>
+                  <input 
+                    type="number" 
+                    value={scanAtrLen} 
+                    onChange={(e) => setScanAtrLen(parseInt(e.target.value) || 14)} 
+                    style={{ width: '100%' }}
+                  />
+                </div>
+              </div>
+            </div>
+          </aside>
+        )}
+
+        {activeTab === 'breakout' && (
+          <aside style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div className="card">
+              <h3 className="card-title">
+                <Sliders size={18} /> Breakout Settings
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+
+                {/* Universe Selector */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem', fontWeight: 600 }}>Universe</label>
+                  <select
+                    value={ndayUniverse}
+                    onChange={(e) => setNdayUniverse(e.target.value as any)}
+                    style={{ width: '100%', background: '#111827', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'white', padding: '0.5rem' }}
+                  >
+                    <option value="nifty_fo">NIFTY F&O Universe</option>
+                    <option value="nifty_500">NIFTY 500 Universe</option>
+                  </select>
+                </div>
+
+                {/* Lookback Windows */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.6rem', fontWeight: 600 }}>Breakout Windows</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    {[520, 780, 1040, 1300, 1560, 1820, 2080, 2340, 2600].map(n => (
+                      <label key={n} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: ndayLookbacks.includes(n) ? 'white' : 'var(--text-muted)', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={ndayLookbacks.includes(n)}
+                          onChange={() => toggleNdayLookback(n)}
+                        />
+                        <span style={{ fontFamily: 'monospace', minWidth: '35px' }}>{Math.round(n / 260)}yr</span>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>({n} days)</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Min Strength Filter */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem', fontWeight: 600 }}>
+                    Min Strength Filter: <span style={{ color: 'white' }}>{ndayMinYears}yr+</span>
+                  </label>
+                  <input
+                    type="range"
+                    min={2} max={10} step={1}
+                    value={ndayMinYears}
+                    onChange={(e) => setNdayMinYears(parseInt(e.target.value))}
+                    style={{ width: '100%', accentColor: '#7c3aed' }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                    <span>2yr</span><span>5yr</span><span>10yr</span>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            {/* Legend */}
+            <div className="card" style={{ padding: '1rem' }}>
+              <h4 style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.7rem', fontWeight: 600 }}>STRENGTH LEGEND</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                {[{ label: '2yr', cls: 'yr2', desc: '~520 days' }, { label: '3yr', cls: 'yr3', desc: '~780 days' }, { label: '5yr', cls: 'yr5', desc: '~1300 days' }, { label: '7yr+', cls: 'yr7plus', desc: '1820+ days' }].map(({ label, cls, desc }) => (
+                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span className={`strength-badge ${cls}`}>{label}</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </aside>
+        )}
+
+        {activeTab === 'oi_spurts' && (
+          <aside style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div className="card">
+              <h3 className="card-title">
+                <Sliders size={18} /> OI Spurts Info
+              </h3>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                Open Interest (OI) represents the total number of outstanding derivative contracts. High changes in OI signal institutional positioning.
+              </p>
+            </div>
+
+            <div className="card" style={{ padding: '1.2rem', borderLeft: '3px solid #10b981' }}>
+              <h4 style={{ fontSize: '0.8rem', color: 'white', marginBottom: '0.6rem', fontWeight: 600 }}>OI INTERPRETATION</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', fontSize: '0.75rem' }}>
+                <div>
+                  <strong style={{ color: '#10b981', display: 'block' }}>📈 Long Buildup (Bullish)</strong>
+                  <span style={{ color: 'var(--text-muted)' }}>OI Increases + Price Increases. Fresh buyers entering.</span>
+                </div>
+                <div>
+                  <strong style={{ color: '#ef4444', display: 'block' }}>📉 Short Buildup (Bearish)</strong>
+                  <span style={{ color: 'var(--text-muted)' }}>OI Increases + Price Decreases. Aggressive sellers entering.</span>
+                </div>
+                <div>
+                  <strong style={{ color: '#60a5fa', display: 'block' }}>🚀 Short Covering (Bullish)</strong>
+                  <span style={{ color: 'var(--text-muted)' }}>OI Decreases + Price Increases. Sellers rushing to exit.</span>
+                </div>
+                <div>
+                  <strong style={{ color: '#fbbf24', display: 'block' }}>⚠️ Long Unwinding (Bearish)</strong>
+                  <span style={{ color: 'var(--text-muted)' }}>OI Decreases + Price Decreases. Buyers liquidating.</span>
+                </div>
+              </div>
+            </div>
+          </aside>
+        )}
+
+        {activeTab === 'change_in_oi' && (
+          <aside style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div className="card">
+              <h3 className="card-title">
+                <Sliders size={18} /> OI Change Filters
+              </h3>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {/* Segment Filter */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem', fontWeight: 600 }}>Asset Segment</label>
+                  <select
+                    value={changeInOiSegment}
+                    onChange={(e) => setChangeInOiSegment(e.target.value as any)}
+                    style={{ width: '100%', background: '#111827', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'white', padding: '0.5rem' }}
+                  >
+                    <option value="all">All Derivatives</option>
+                    <option value="stocks">Stock Derivatives Only</option>
+                    <option value="indices">Index Options/Futures Only</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="card" style={{ padding: '1.2rem', borderLeft: '3px solid var(--color-primary-500)' }}>
+              <h4 style={{ fontSize: '0.8rem', color: 'white', marginBottom: '0.6rem', fontWeight: 600 }}>MOMENTUM CONTEXT</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', fontSize: '0.75rem' }}>
+                <div>
+                  <strong style={{ color: '#10b981', display: 'block' }}>📈 Long Build-up</strong>
+                  <span style={{ color: 'var(--text-muted)' }}>OI rises & price rises. Bullish momentum driven by new buyers entering long positions.</span>
+                </div>
+                <div>
+                  <strong style={{ color: '#60a5fa', display: 'block' }}>🚀 Short Covering</strong>
+                  <span style={{ color: 'var(--text-muted)' }}>OI falls & price rises. Bullish momentum driven by short sellers closing out their positions.</span>
+                </div>
+              </div>
+            </div>
+          </aside>
+        )}
+
+
+
 
         {/* MAIN PANEL */}
-        <main style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        {activeTab === 'workbench' && (
+          <main style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           
           {/* ELITE STRATEGIST STATUS BAR */}
           {optionChain && (
@@ -1598,7 +2281,1106 @@ export default function App() {
             </div>
           )}
         </main>
+      )}
+
+      {activeTab === 'scanner' && (
+        <main style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+            <div>
+              <h2 style={{ fontFamily: 'Outfit', fontWeight: 700, fontSize: '1.25rem', marginBottom: '0.2rem' }}>Cardwell RSI Multi-Bagger Scanner</h2>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Scan for high-conviction momentum setups using Wilder's RSI breakout (40 cross) and Volume Confirmation.</p>
+            </div>
+
+            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+              <select
+                value={scannerUniverse}
+                onChange={(e) => setScannerUniverse(e.target.value as any)}
+                style={{ background: '#111827', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'white', padding: '0.5rem 1rem', fontSize: '0.9rem' }}
+              >
+                <option value="nifty_fo">NIFTY F&O Universe</option>
+                <option value="nifty_500">NIFTY 500 Universe</option>
+              </select>
+
+              <button 
+                className="primary" 
+                onClick={startScan} 
+                disabled={scanStatus === 'running'}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1.2rem' }}
+              >
+                {scanStatus === 'running' ? (
+                  <>
+                    <RefreshCw className="animate-spin" size={16} />
+                    Scanning...
+                  </>
+                ) : (
+                  <>
+                    <Search size={16} />
+                    Run Scanner
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Scan Progress Section */}
+          {scanStatus === 'running' && (
+            <div className="card" style={{ padding: '1.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem', fontSize: '0.9rem' }}>
+                <span style={{ fontWeight: 600, color: 'var(--color-primary-500)' }}>
+                  Scanning Universe: {scannerUniverse === 'nifty_fo' ? 'Nifty F&O' : 'Nifty 500'}
+                </span>
+                <span style={{ fontWeight: 600 }}>
+                  {scanProgress} / {scanTotal} stocks ({scanTotal > 0 ? Math.round((scanProgress / scanTotal) * 100) : 0}%)
+                </span>
+              </div>
+              <div className="progress-bar-container" style={{ width: '100%', height: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '5px', overflow: 'hidden', marginBottom: '0.75rem' }}>
+                <div 
+                  className="progress-bar-filler" 
+                  style={{ 
+                    width: `${scanTotal > 0 ? (scanProgress / scanTotal) * 100 : 0}%`, 
+                    height: '100%', 
+                    background: 'linear-gradient(90deg, var(--color-primary-500), var(--color-purple))', 
+                    transition: 'width 0.2s ease-out' 
+                  }}
+                />
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <RefreshCw className="animate-spin" size={12} />
+                <span>Fetching and calculating: <strong style={{ color: 'white' }}>{scanCurrentSymbol}</strong></span>
+              </div>
+            </div>
+          )}
+
+          {scanError && (
+            <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#ef4444', padding: '1rem', borderRadius: '12px', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <AlertTriangle size={20} />
+              <strong>Scan Error: </strong> {scanError}
+            </div>
+          )}
+
+          {/* Results Table Section */}
+          {scanStatus === 'completed' && scanResults.length > 0 && (
+            <div className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '1rem' }}>
+                <h3 className="card-title" style={{ margin: 0 }}>Scan Results ({scanResults.filter(r => r.signal !== 'NEUTRAL').length} Signals)</h3>
+                
+                <input
+                  type="text"
+                  placeholder="Search by symbol, name, or industry..."
+                  value={scanFilter}
+                  onChange={(e) => setScanFilter(e.target.value)}
+                  style={{ width: '300px', background: '#111827', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'white', padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}
+                />
+              </div>
+
+              <div className="option-chain-container" style={{ overflowX: 'auto' }}>
+                <table className="option-chain-table" style={{ width: '100%' }}>
+                  <thead>
+                    <tr>
+                      <th>Symbol</th>
+                      <th>Company Name</th>
+                      <th>Industry</th>
+                      <th style={{ textAlign: 'right' }}>Close</th>
+                      <th style={{ textAlign: 'right' }}>Change %</th>
+                      <th style={{ textAlign: 'center' }}>RSI</th>
+                      <th style={{ textAlign: 'center' }}>Vol Mult</th>
+                      <th style={{ textAlign: 'center' }}>MA Filter</th>
+                      <th style={{ textAlign: 'center' }}>Signal</th>
+                      <th style={{ textAlign: 'center' }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const filtered = scanResults.filter(row => {
+                        const query = scanFilter.toLowerCase();
+                        return row.symbol.toLowerCase().includes(query) ||
+                               row.name.toLowerCase().includes(query) ||
+                               row.industry.toLowerCase().includes(query);
+                      });
+
+                      if (filtered.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan={10} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                              No stocks match the filter query.
+                            </td>
+                          </tr>
+                        );
+                      }
+
+                      return filtered.map((row) => (
+                        <tr key={row.symbol} style={row.signal === 'BUY' ? { background: 'rgba(16, 185, 129, 0.03)' } : row.signal === 'SETUP' ? { background: 'rgba(59, 130, 246, 0.03)' } : {}}>
+                          <td>
+                            <strong style={{ color: '#60a5fa' }}>{row.symbol}</strong>
+                          </td>
+                          <td style={{ fontSize: '0.85rem', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.name}>{row.name}</td>
+                          <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{row.industry}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 600 }}>Rs. {row.close.toLocaleString()}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 600, color: row.change_pct >= 0 ? '#10b981' : '#f43f5e' }}>
+                            {row.change_pct >= 0 ? '+' : ''}{row.change_pct}%
+                          </td>
+                          <td style={{ textAlign: 'center', fontWeight: 600, color: row.rsi >= 70 ? '#fbbf24' : row.rsi <= 30 ? '#60a5fa' : 'white' }}>{row.rsi}</td>
+                          <td style={{ textAlign: 'center', color: row.vol_mult >= scanMinVolMultiplier ? '#10b981' : 'var(--text-muted)' }}>
+                            {row.vol_mult}x
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            {row.above_ma ? (
+                              <span style={{ color: '#10b981', fontSize: '0.8rem', fontWeight: 600 }}>Price &gt; MA</span>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Price &lt; MA</span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            {row.signal === 'BUY' ? (
+                              <span style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                BUY
+                              </span>
+                            ) : row.signal === 'SETUP' ? (
+                              <span style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.3)', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                SETUP
+                              </span>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>NEUTRAL</span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <button
+                              className="outline"
+                              style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem' }}
+                              onClick={() => {
+                                setSymbol(row.symbol);
+                                setSelectedExpiry('');
+                                setActiveTab('workbench');
+                                fetchOptionChain(row.symbol, '');
+                              }}
+                            >
+                              Analyze Options
+                            </button>
+                          </td>
+                        </tr>
+                      ));
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {scanStatus === 'idle' && (
+            <div className="card" style={{ textAlign: 'center', padding: '3rem 2rem', border: '1px dashed var(--border-color)', background: 'transparent' }}>
+              <Search size={32} style={{ color: 'var(--text-muted)', marginBottom: '1rem' }} />
+              <h3 style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '1.1rem', marginBottom: '0.5rem' }}>No Scan Data Available</h3>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', maxWidth: '400px', margin: '0 auto 1.5rem auto' }}>
+                Select your universe and settings in the sidebar, then click "Run Scanner" to fetch historical data and scan for momentum signals.
+              </p>
+              <button className="primary" onClick={startScan} style={{ padding: '0.5rem 1.5rem' }}>
+                Run Initial Scan
+              </button>
+            </div>
+          )}
+        </main>
+      )}
+
+      {activeTab === 'breakout' && (
+        <main style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+
+          {/* Header Card */}
+          <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', borderLeft: '4px solid #7c3aed' }}>
+            <div>
+              <h2 style={{ fontFamily: 'Outfit', fontWeight: 700, fontSize: '1.25rem', marginBottom: '0.2rem', background: 'linear-gradient(90deg, #a78bfa, #818cf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                📈 Multi-Year Breakout Scanner
+              </h2>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                ChartInk-style N-Day High scan — flags stocks where today's HIGH equals the all-time high over the last 2yr to 10yr.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'right' }}>
+                <div>{ndayLookbacks.length} windows active</div>
+                <div>Showing {ndayMinYears}yr+ highs</div>
+              </div>
+              <button
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1.2rem',
+                  background: ndayStatus === 'running' ? 'rgba(124,58,237,0.4)' : 'linear-gradient(90deg,#7c3aed,#6366f1)',
+                  color: 'white', border: 'none', borderRadius: '8px', cursor: ndayStatus === 'running' ? 'not-allowed' : 'pointer',
+                  fontWeight: 600, fontSize: '0.9rem', transition: 'opacity 0.2s'
+                }}
+                onClick={startNdayScan}
+                disabled={ndayStatus === 'running'}
+              >
+                {ndayStatus === 'running' ? (
+                  <><RefreshCw className="animate-spin" size={16} /> Scanning...</>
+                ) : (
+                  <><Search size={16} /> Run Breakout Scan</>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Progress Card */}
+          {ndayStatus === 'running' && (
+            <div className="card" style={{ padding: '1.5rem', borderLeft: '3px solid #7c3aed' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem', fontSize: '0.9rem' }}>
+                <span style={{ fontWeight: 600, color: '#a78bfa' }}>
+                  Scanning: {ndayUniverse === 'nifty_fo' ? 'Nifty F&O' : 'Nifty 500'} — Downloading 12yr OHLC data
+                </span>
+                <span style={{ fontWeight: 600 }}>
+                  Batch {ndayProgress} / {ndayTotal} ({ndayTotal > 0 ? Math.round((ndayProgress / ndayTotal) * 100) : 0}%)
+                </span>
+              </div>
+              <div style={{ width: '100%', height: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '5px', overflow: 'hidden', marginBottom: '0.75rem' }}>
+                <div style={{
+                  width: `${ndayTotal > 0 ? (ndayProgress / ndayTotal) * 100 : 0}%`,
+                  height: '100%',
+                  background: 'linear-gradient(90deg, #7c3aed, #6366f1, #a78bfa)',
+                  transition: 'width 0.3s ease-out',
+                  borderRadius: '5px'
+                }} />
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <RefreshCw className="animate-spin" size={12} />
+                <span>Processing batch: <strong style={{ color: 'white', fontFamily: 'monospace' }}>{ndayCurrentBatch}</strong></span>
+                <span style={{ marginLeft: 'auto', color: '#a78bfa', fontSize: '0.75rem' }}>⚡ This may take 1–3 minutes for large universes</span>
+              </div>
+            </div>
+          )}
+
+          {/* Error State */}
+          {ndayError && (
+            <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#ef4444', padding: '1rem', borderRadius: '12px', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <AlertTriangle size={20} />
+              <strong>Scan Error: </strong> {ndayError}
+            </div>
+          )}
+
+          {/* Results Table */}
+          {ndayStatus === 'completed' && ndayResults.length > 0 && (() => {
+            const getStrengthCls = (yrs: number) => {
+              if (yrs >= 7) return 'yr7plus';
+              if (yrs >= 5) return 'yr5';
+              if (yrs >= 3) return 'yr3';
+              return 'yr2';
+            };
+            const filtered = ndayResults
+              .filter(r => r.years_equivalent >= ndayMinYears)
+              .filter(r => {
+                const q = ndayFilter.toLowerCase();
+                return !q || r.symbol.toLowerCase().includes(q) || r.name.toLowerCase().includes(q) || r.industry.toLowerCase().includes(q);
+              });
+
+            return (
+              <div className="card">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div>
+                    <h3 className="card-title" style={{ margin: 0 }}>
+                      Breakout Results
+                      <span style={{ marginLeft: '0.5rem', fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 400 }}>
+                        {filtered.length} stocks hitting multi-year highs
+                      </span>
+                    </h3>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search symbol / name / industry..."
+                    value={ndayFilter}
+                    onChange={(e) => setNdayFilter(e.target.value)}
+                    style={{ width: '280px', background: '#111827', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'white', padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}
+                  />
+                </div>
+
+                <div className="option-chain-container" style={{ overflowX: 'auto' }}>
+                  <table className="option-chain-table" style={{ width: '100%' }}>
+                    <thead>
+                      <tr>
+                        <th>Symbol</th>
+                        <th>Company</th>
+                        <th>Industry</th>
+                        <th style={{ textAlign: 'right' }}>Close</th>
+                        <th style={{ textAlign: 'right' }}>Today High</th>
+                        <th style={{ textAlign: 'right' }}>Change %</th>
+                        <th style={{ textAlign: 'center' }}>Strength</th>
+                        <th style={{ textAlign: 'center' }}>Windows Hit</th>
+                        <th style={{ textAlign: 'center' }}>F&O</th>
+                        <th style={{ textAlign: 'center' }}>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.length === 0 ? (
+                        <tr><td colSpan={10} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>No breakouts match the current filter.</td></tr>
+                      ) : filtered.map(row => (
+                        <tr key={row.symbol} style={{
+                          background: row.years_equivalent >= 7 ? 'rgba(124,58,237,0.04)' : row.years_equivalent >= 5 ? 'rgba(234,179,8,0.03)' : 'transparent'
+                        }}>
+                          <td><strong style={{ color: '#a78bfa' }}>{row.symbol}</strong></td>
+                          <td style={{ fontSize: '0.85rem', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.name}>{row.name}</td>
+                          <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{row.industry}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 600 }}>₹{row.close.toLocaleString()}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 700, color: '#10b981' }}>₹{row.high.toLocaleString()}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 600, color: row.change_pct >= 0 ? '#10b981' : '#f43f5e' }}>
+                            {row.change_pct >= 0 ? '+' : ''}{row.change_pct}%
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <span className={`strength-badge ${getStrengthCls(row.years_equivalent)}`}>
+                              {row.years_equivalent}yr
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.2rem', justifyContent: 'center' }}>
+                              {row.matched_lookbacks.map(n => (
+                                <span key={n} className="lookback-pill">{Math.round(n / 260)}yr</span>
+                              ))}
+                            </div>
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            {row.is_fo ? (
+                              <span className="fo-dot" title="F&O eligible">F&O</span>
+                            ) : (
+                              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>—</span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <button
+                              className="outline"
+                              style={{
+                                padding: '0.25rem 0.6rem', fontSize: '0.75rem',
+                                opacity: row.is_fo ? 1 : 0.4,
+                                cursor: row.is_fo ? 'pointer' : 'not-allowed'
+                              }}
+                              disabled={!row.is_fo}
+                              title={row.is_fo ? 'Open in Options Workbench' : 'Not in F&O segment'}
+                              onClick={() => {
+                                if (!row.is_fo) return;
+                                setSymbol(row.symbol);
+                                setSelectedExpiry('');
+                                setActiveTab('workbench');
+                                fetchOptionChain(row.symbol, '');
+                              }}
+                            >
+                              {row.is_fo ? 'Analyze Options' : 'Cash Only'}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Completed but no results after filter */}
+          {ndayStatus === 'completed' && ndayResults.filter(r => r.years_equivalent >= ndayMinYears).length === 0 && (
+            <div className="card" style={{ textAlign: 'center', padding: '2.5rem', border: '1px dashed var(--border-color)', background: 'transparent' }}>
+              <CheckCircle size={32} style={{ color: '#10b981', marginBottom: '1rem' }} />
+              <h3 style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '1.1rem', marginBottom: '0.5rem' }}>Scan Complete — No {ndayMinYears}yr+ Breakouts Found</h3>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', maxWidth: '400px', margin: '0 auto' }}>
+                Try lowering the Min Strength filter or adding more lookback windows in the sidebar.
+              </p>
+            </div>
+          )}
+
+          {/* Idle State */}
+          {ndayStatus === 'idle' && (
+            <div className="card" style={{ textAlign: 'center', padding: '3rem 2rem', border: '1px dashed rgba(124,58,237,0.3)', background: 'rgba(124,58,237,0.02)' }}>
+              <div style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>📈</div>
+              <h3 style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '1.1rem', marginBottom: '0.5rem' }}>Multi-Year Breakout Scanner</h3>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', maxWidth: '480px', margin: '0 auto 1.5rem auto', lineHeight: 1.6 }}>
+                Identifies stocks making <strong style={{ color: 'white' }}>all-time highs over 2 to 10 years</strong> — the ChartInk N-Day High formula.
+                Stocks at multi-year highs often signal the beginning of powerful breakout trends.
+              </p>
+              <div style={{ display: 'flex', gap: '2rem', justifyContent: 'center', marginBottom: '2rem', flexWrap: 'wrap' }}>
+                {[{ label: '520 days', desc: '~2yr high', cls: 'yr2' }, { label: '1300 days', desc: '~5yr high', cls: 'yr5' }, { label: '2600 days', desc: '~10yr high', cls: 'yr7plus' }].map(({ label, desc, cls }) => (
+                  <div key={label} style={{ textAlign: 'center' }}>
+                    <span className={`strength-badge ${cls}`} style={{ fontSize: '0.9rem', padding: '0.3rem 0.7rem' }}>{desc}</span>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+              <button
+                style={{
+                  padding: '0.6rem 1.8rem',
+                  background: 'linear-gradient(90deg,#7c3aed,#6366f1)',
+                  color: 'white', border: 'none', borderRadius: '8px',
+                  cursor: 'pointer', fontWeight: 600, fontSize: '0.95rem'
+                }}
+                onClick={startNdayScan}
+              >
+                🚀 Run Breakout Scan
+              </button>
+            </div>
+          )}
+        </main>
+      )}
+
+      {activeTab === 'oi_spurts' && (
+
+        <main style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          
+          {/* Header Card */}
+          <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', borderLeft: '4px solid #10b981' }}>
+            <div>
+              <h2 style={{ fontFamily: 'Outfit', fontWeight: 700, fontSize: '1.25rem', marginBottom: '0.2rem', background: 'linear-gradient(90deg, #34d399, #60a5fa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                📊 Top 10 Open Interest Spurts
+              </h2>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                Live NSE Derivative positioning leaderboard showing the highest daily increase in open interest.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+              {oiTimestamp && (
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'right' }}>
+                  <div>Last update: {oiTimestamp}</div>
+                  {oiIsMock && <div style={{ color: '#fbbf24', fontWeight: 600 }}>Mock Fallback Active</div>}
+                </div>
+              )}
+              <button
+                className="outline"
+                onClick={fetchOiSpurts}
+                disabled={oiLoading}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem' }}
+              >
+                <RefreshCw className={oiLoading ? "animate-spin" : ""} size={16} />
+                Refresh Data
+              </button>
+            </div>
+          </div>
+
+          {oiLoading && (
+            <div className="card" style={{ textAlign: 'center', padding: '3rem 2rem' }}>
+              <RefreshCw className="animate-spin" size={32} style={{ color: '#10b981', marginBottom: '1rem' }} />
+              <h3 style={{ fontSize: '1.1rem', marginBottom: '0.3rem' }}>Fetching OI Spurts...</h3>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Connecting to National Stock Exchange of India API</p>
+            </div>
+          )}
+
+          {oiError && (
+            <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#ef4444', padding: '1rem', borderRadius: '12px', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <AlertTriangle size={20} />
+              <strong>Error Loading Data: </strong> {oiError}
+              <button className="primary" onClick={fetchOiSpurts} style={{ marginLeft: 'auto', padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}>Retry</button>
+            </div>
+          )}
+
+          {!oiLoading && !oiError && (
+            <>
+              {/* Sorting Filter card */}
+              <div className="card" style={{ padding: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>RANK BY HIGHEST FOR THE DAY:</span>
+                
+                <div style={{ display: 'flex', gap: '0.5rem', background: 'rgba(255,255,255,0.03)', padding: '0.25rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                  <button
+                    onClick={() => setOiSortBy('percent')}
+                    style={{
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '0.35rem 0.9rem',
+                      cursor: 'pointer',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      background: oiSortBy === 'percent' ? '#10b981' : 'transparent',
+                      color: oiSortBy === 'percent' ? 'white' : 'var(--text-muted)',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    % Increase in OI
+                  </button>
+                  <button
+                    onClick={() => setOiSortBy('absolute')}
+                    style={{
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '0.35rem 0.9rem',
+                      cursor: 'pointer',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      background: oiSortBy === 'absolute' ? '#10b981' : 'transparent',
+                      color: oiSortBy === 'absolute' ? 'white' : 'var(--text-muted)',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    Net Contract Increase
+                  </button>
+                </div>
+              </div>
+
+              {/* Leaderboard Table */}
+              <div className="card">
+                <div className="option-chain-container" style={{ overflowX: 'auto' }}>
+                  <table className="option-chain-table" style={{ width: '100%' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ textAlign: 'center', width: '70px' }}>Rank</th>
+                        <th>Symbol</th>
+                        <th style={{ textAlign: 'right' }}>Underlying Value</th>
+                        <th style={{ textAlign: 'right' }}>Prev OI (Contracts)</th>
+                        <th style={{ textAlign: 'right' }}>Latest OI (Contracts)</th>
+                        <th style={{ textAlign: 'right' }}>Change in OI</th>
+                        <th style={{ textAlign: 'center' }}>% Change</th>
+                        <th style={{ textAlign: 'right' }}>Volume</th>
+                        <th style={{ textAlign: 'center' }}>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(() => {
+                        const sorted = [...oiSpurts];
+                        if (oiSortBy === 'percent') {
+                          sorted.sort((a, b) => b.avgInOI - a.avgInOI);
+                        } else {
+                          sorted.sort((a, b) => b.changeInOI - a.changeInOI);
+                        }
+                        const top10 = sorted.slice(0, 10);
+
+                        if (top10.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={9} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                                No OI change data available.
+                              </td>
+                            </tr>
+                          );
+                        }
+
+                        return top10.map((row, idx) => {
+                          const getMedal = (pos: number) => {
+                            if (pos === 0) return '🥇 1st';
+                            if (pos === 1) return '🥈 2nd';
+                            if (pos === 2) return '🥉 3rd';
+                            return `${pos + 1}th`;
+                          };
+
+                          const getMedalStyle = (pos: number): React.CSSProperties => {
+                            if (pos === 0) return { fontWeight: 800, color: '#fbbf24', textShadow: '0 0 8px rgba(251,191,36,0.2)' };
+                            if (pos === 1) return { fontWeight: 800, color: '#94a3b8' };
+                            if (pos === 2) return { fontWeight: 800, color: '#b45309' };
+                            return { color: 'var(--text-muted)', fontSize: '0.85rem' };
+                          };
+
+                          return (
+                            <tr key={row.symbol} style={idx < 3 ? { background: 'rgba(16,185,129,0.02)' } : {}}>
+                              <td style={{ textAlign: 'center', ...getMedalStyle(idx) }}>
+                                {getMedal(idx)}
+                              </td>
+                              <td>
+                                <strong style={{ color: '#60a5fa' }}>{row.symbol}</strong>
+                              </td>
+                              <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                                ₹{row.underlyingValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </td>
+                              <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>
+                                {row.prevOI.toLocaleString()}
+                              </td>
+                              <td style={{ textAlign: 'right', color: 'white' }}>
+                                {row.latestOI.toLocaleString()}
+                              </td>
+                              <td style={{ textAlign: 'right', fontWeight: 700, color: '#10b981' }}>
+                                +{row.changeInOI.toLocaleString()}
+                              </td>
+                              <td style={{ textAlign: 'center' }}>
+                                <span style={{
+                                  background: 'rgba(16, 185, 129, 0.15)',
+                                  color: '#10b981',
+                                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                                  padding: '0.2rem 0.5rem',
+                                  borderRadius: '6px',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 700,
+                                  whiteSpace: 'nowrap'
+                                }}>
+                                  +{row.avgInOI}%
+                                </span>
+                              </td>
+                              <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>
+                                {row.volume.toLocaleString()}
+                              </td>
+                              <td style={{ textAlign: 'center' }}>
+                                <button
+                                  className="outline"
+                                  style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem' }}
+                                  onClick={() => {
+                                    setSymbol(row.symbol);
+                                    setSelectedExpiry('');
+                                    setActiveTab('workbench');
+                                    fetchOptionChain(row.symbol, '');
+                                  }}
+                                >
+                                  Analyze Options
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        });
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+
+        </main>
+      )}
+
+      {activeTab === 'change_in_oi' && (
+        <main style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          
+          {/* Header Card */}
+          <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', borderLeft: '4px solid #3b82f6' }}>
+            <div>
+              <h2 style={{ fontFamily: 'Outfit', fontWeight: 700, fontSize: '1.25rem', marginBottom: '0.2rem', background: 'linear-gradient(90deg, #3b82f6, #60a5fa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                📊 Change in Open Interest (Momentum Scan)
+              </h2>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                Track F&O contracts exhibiting the highest shift in derivative positioning. Helps identify where big money is building long positions or covering shorts.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+              {changeInOiData?.metadata?.timestamp && (
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'right' }}>
+                  <div>Last update: {changeInOiData.metadata.timestamp}</div>
+                  {changeInOiData.is_mock && <div style={{ color: '#fbbf24', fontWeight: 600 }}>Mock Fallback Active</div>}
+                </div>
+              )}
+              <button
+                className="outline"
+                onClick={fetchChangeInOi}
+                disabled={changeInOiLoading}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem' }}
+              >
+                <RefreshCw className={changeInOiLoading ? "animate-spin" : ""} size={16} />
+                Refresh
+              </button>
+            </div>
+          </div>
+
+          {changeInOiLoading && (
+            <div className="card" style={{ textAlign: 'center', padding: '3rem 2rem' }}>
+              <RefreshCw className="animate-spin" size={32} style={{ color: '#3b82f6', marginBottom: '1rem' }} />
+              <h3 style={{ fontSize: '1.1rem', marginBottom: '0.3rem' }}>Fetching F&O OI Change...</h3>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Connecting to National Stock Exchange of India API</p>
+            </div>
+          )}
+
+          {changeInOiError && (
+            <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#ef4444', padding: '1rem', borderRadius: '12px', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <AlertTriangle size={20} />
+              <strong>Error Loading Data: </strong> {changeInOiError}
+              <button className="primary" onClick={fetchChangeInOi} style={{ marginLeft: 'auto', padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}>Retry</button>
+            </div>
+          )}
+
+          {!changeInOiLoading && !changeInOiError && changeInOiData && (
+            <>
+              {/* Controls bar */}
+              <div className="card" style={{ padding: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>FILTER:</span>
+                  <input
+                    type="text"
+                    placeholder="Search by Symbol..."
+                    value={changeInOiFilter}
+                    onChange={(e) => setChangeInOiFilter(e.target.value)}
+                    style={{ width: '240px', background: '#111827', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'white', padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}
+                  />
+                </div>
+
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Showing up to 25 items per category.
+                </div>
+              </div>
+
+              {/* Responsive columns grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(550px, 1fr))', gap: '1.5rem' }}>
+                
+                {/* COLUMN 1: LONG BUILD-UP */}
+                <div className="card" style={{ borderTop: '4px solid #10b981' }}>
+                  <h3 className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
+                    <span>📈 Long Build-up (Rise in OI & Price)</span>
+                    <span style={{ fontSize: '0.75rem', background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', padding: '0.2rem 0.6rem', borderRadius: '12px', fontWeight: 700 }}>
+                      Bullish Strength
+                    </span>
+                  </h3>
+                  
+                  <div className="option-chain-container" style={{ overflowX: 'auto' }}>
+                    <table className="option-chain-table" style={{ width: '100%' }}>
+                      <thead>
+                        <tr>
+                          <th>Symbol</th>
+                          <th>Contract</th>
+                          <th style={{ textAlign: 'right' }}>LTP</th>
+                          <th style={{ textAlign: 'right' }}>% Price Chg</th>
+                          <th style={{ textAlign: 'right' }}>OI Chg %</th>
+                          <th style={{ textAlign: 'right' }}>OI Chg (Abs)</th>
+                          <th style={{ textAlign: 'center' }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          const list = (changeInOiData.long_buildup || []).filter(r => {
+                            const matchSym = r.symbol.toLowerCase().includes(changeInOiFilter.toLowerCase());
+                            const matchSeg = changeInOiSegment === 'all' || 
+                              (changeInOiSegment === 'stocks' && !r.is_index) || 
+                              (changeInOiSegment === 'indices' && r.is_index);
+                            return matchSym && matchSeg;
+                          });
+
+                          if (list.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                                  No Long Build-up contracts match the filters.
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return list.slice(0, 10).map((row, idx) => {
+                            const isOpt = row.instrument_type.includes("Option") || row.strike_price > 0;
+                            const contractLabel = isOpt 
+                              ? `${row.strike_price} ${row.option_type}` 
+                              : "Future";
+                            return (
+                              <tr key={row.symbol + '-' + row.strike_price + '-' + row.option_type + '-' + idx}>
+                                <td>
+                                  <strong style={{ color: '#60a5fa' }}>{row.symbol}</strong>
+                                  <span style={{ fontSize: '0.65rem', marginLeft: '0.3rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)', padding: '0.1rem 0.3rem', borderRadius: '4px' }}>
+                                    {row.is_index ? "IDX" : "STK"}
+                                  </span>
+                                </td>
+                                <td style={{ fontSize: '0.8rem' }}>
+                                  <div>{contractLabel}</div>
+                                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{row.expiry_date}</div>
+                                </td>
+                                <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                                  {row.ltp.toLocaleString('en-IN', { minimumFractionDigits: 1 })}
+                                </td>
+                                <td style={{ textAlign: 'right', fontWeight: 600, color: '#10b981' }}>
+                                  +{row.pct_change_in_ltp}%
+                                </td>
+                                <td style={{ textAlign: 'right', fontWeight: 700, color: '#10b981' }}>
+                                  +{row.pct_change_in_oi}%
+                                </td>
+                                <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>
+                                  {row.change_in_oi.toLocaleString()}
+                                </td>
+                                <td style={{ textAlign: 'center' }}>
+                                  <button
+                                    className="outline"
+                                    style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}
+                                    onClick={() => {
+                                      setSymbol(row.symbol);
+                                      setSelectedExpiry('');
+                                      setActiveTab('workbench');
+                                      fetchOptionChain(row.symbol, '');
+                                    }}
+                                  >
+                                    Analyze
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* COLUMN 2: SHORT COVERING */}
+                <div className="card" style={{ borderTop: '4px solid #60a5fa' }}>
+                  <h3 className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
+                    <span>🚀 Short Covering (Fall in OI & Rise in Price)</span>
+                    <span style={{ fontSize: '0.75rem', background: 'rgba(96, 165, 250, 0.15)', color: '#60a5fa', padding: '0.2rem 0.6rem', borderRadius: '12px', fontWeight: 700 }}>
+                      Sellers Rushing to Exit
+                    </span>
+                  </h3>
+                  
+                  <div className="option-chain-container" style={{ overflowX: 'auto' }}>
+                    <table className="option-chain-table" style={{ width: '100%' }}>
+                      <thead>
+                        <tr>
+                          <th>Symbol</th>
+                          <th>Contract</th>
+                          <th style={{ textAlign: 'right' }}>LTP</th>
+                          <th style={{ textAlign: 'right' }}>% Price Chg</th>
+                          <th style={{ textAlign: 'right' }}>OI Chg %</th>
+                          <th style={{ textAlign: 'right' }}>OI Chg (Abs)</th>
+                          <th style={{ textAlign: 'center' }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          const list = (changeInOiData.short_covering || []).filter(r => {
+                            const matchSym = r.symbol.toLowerCase().includes(changeInOiFilter.toLowerCase());
+                            const matchSeg = changeInOiSegment === 'all' || 
+                              (changeInOiSegment === 'stocks' && !r.is_index) || 
+                              (changeInOiSegment === 'indices' && r.is_index);
+                            return matchSym && matchSeg;
+                          });
+
+                          if (list.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                                  No Short Covering contracts match the filters.
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return list.slice(0, 10).map((row, idx) => {
+                            const isOpt = row.instrument_type.includes("Option") || row.strike_price > 0;
+                            const contractLabel = isOpt 
+                              ? `${row.strike_price} ${row.option_type}` 
+                              : "Future";
+                            return (
+                              <tr key={row.symbol + '-' + row.strike_price + '-' + row.option_type + '-' + idx}>
+                                <td>
+                                  <strong style={{ color: '#60a5fa' }}>{row.symbol}</strong>
+                                  <span style={{ fontSize: '0.65rem', marginLeft: '0.3rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)', padding: '0.1rem 0.3rem', borderRadius: '4px' }}>
+                                    {row.is_index ? "IDX" : "STK"}
+                                  </span>
+                                </td>
+                                <td style={{ fontSize: '0.8rem' }}>
+                                  <div>{contractLabel}</div>
+                                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{row.expiry_date}</div>
+                                </td>
+                                <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                                  {row.ltp.toLocaleString('en-IN', { minimumFractionDigits: 1 })}
+                                </td>
+                                <td style={{ textAlign: 'right', fontWeight: 600, color: '#10b981' }}>
+                                  +{row.pct_change_in_ltp}%
+                                </td>
+                                <td style={{ textAlign: 'right', fontWeight: 700, color: '#f43f5e' }}>
+                                  {row.pct_change_in_oi}%
+                                </td>
+                                <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>
+                                  {row.change_in_oi.toLocaleString()}
+                                </td>
+                                <td style={{ textAlign: 'center' }}>
+                                  <button
+                                    className="outline"
+                                    style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}
+                                    onClick={() => {
+                                      setSymbol(row.symbol);
+                                      setSelectedExpiry('');
+                                      setActiveTab('workbench');
+                                      fetchOptionChain(row.symbol, '');
+                                    }}
+                                  >
+                                    Analyze
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* COLUMN 3: SHORT BUILD-UP */}
+                <div className="card" style={{ borderTop: '4px solid #ef4444' }}>
+                  <h3 className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
+                    <span>📉 Short Build-up (Rise in OI & Price Fall)</span>
+                    <span style={{ fontSize: '0.75rem', background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', padding: '0.2rem 0.6rem', borderRadius: '12px', fontWeight: 700 }}>
+                      Bearish Strength
+                    </span>
+                  </h3>
+                  
+                  <div className="option-chain-container" style={{ overflowX: 'auto' }}>
+                    <table className="option-chain-table" style={{ width: '100%' }}>
+                      <thead>
+                        <tr>
+                          <th>Symbol</th>
+                          <th>Contract</th>
+                          <th style={{ textAlign: 'right' }}>LTP</th>
+                          <th style={{ textAlign: 'right' }}>% Price Chg</th>
+                          <th style={{ textAlign: 'right' }}>OI Chg %</th>
+                          <th style={{ textAlign: 'right' }}>OI Chg (Abs)</th>
+                          <th style={{ textAlign: 'center' }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          const list = (changeInOiData.short_buildup || []).filter(r => {
+                            const matchSym = r.symbol.toLowerCase().includes(changeInOiFilter.toLowerCase());
+                            const matchSeg = changeInOiSegment === 'all' || 
+                              (changeInOiSegment === 'stocks' && !r.is_index) || 
+                              (changeInOiSegment === 'indices' && r.is_index);
+                            return matchSym && matchSeg;
+                          });
+
+                          if (list.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                                  No Short Build-up contracts match the filters.
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return list.slice(0, 10).map((row, idx) => {
+                            const isOpt = row.instrument_type.includes("Option") || row.strike_price > 0;
+                            const contractLabel = isOpt 
+                              ? `${row.strike_price} ${row.option_type}` 
+                              : "Future";
+                            return (
+                              <tr key={row.symbol + '-' + row.strike_price + '-' + row.option_type + '-' + idx}>
+                                <td>
+                                  <strong style={{ color: '#60a5fa' }}>{row.symbol}</strong>
+                                  <span style={{ fontSize: '0.65rem', marginLeft: '0.3rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)', padding: '0.1rem 0.3rem', borderRadius: '4px' }}>
+                                    {row.is_index ? "IDX" : "STK"}
+                                  </span>
+                                </td>
+                                <td style={{ fontSize: '0.8rem' }}>
+                                  <div>{contractLabel}</div>
+                                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{row.expiry_date}</div>
+                                </td>
+                                <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                                  {row.ltp.toLocaleString('en-IN', { minimumFractionDigits: 1 })}
+                                </td>
+                                <td style={{ textAlign: 'right', fontWeight: 600, color: '#ef4444' }}>
+                                  {row.pct_change_in_ltp}%
+                                </td>
+                                <td style={{ textAlign: 'right', fontWeight: 700, color: '#10b981' }}>
+                                  +{row.pct_change_in_oi}%
+                                </td>
+                                <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>
+                                  {row.change_in_oi.toLocaleString()}
+                                </td>
+                                <td style={{ textAlign: 'center' }}>
+                                  <button
+                                    className="outline"
+                                    style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}
+                                    onClick={() => {
+                                      setSymbol(row.symbol);
+                                      setSelectedExpiry('');
+                                      setActiveTab('workbench');
+                                      fetchOptionChain(row.symbol, '');
+                                    }}
+                                  >
+                                    Analyze
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* COLUMN 4: LONG UNWINDING */}
+                <div className="card" style={{ borderTop: '4px solid #f59e0b' }}>
+                  <h3 className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
+                    <span>⚠️ Long Unwinding (Fall in OI & Price Fall)</span>
+                    <span style={{ fontSize: '0.75rem', background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', padding: '0.2rem 0.6rem', borderRadius: '12px', fontWeight: 700 }}>
+                      Buyers Liquidating
+                    </span>
+                  </h3>
+                  
+                  <div className="option-chain-container" style={{ overflowX: 'auto' }}>
+                    <table className="option-chain-table" style={{ width: '100%' }}>
+                      <thead>
+                        <tr>
+                          <th>Symbol</th>
+                          <th>Contract</th>
+                          <th style={{ textAlign: 'right' }}>LTP</th>
+                          <th style={{ textAlign: 'right' }}>% Price Chg</th>
+                          <th style={{ textAlign: 'right' }}>OI Chg %</th>
+                          <th style={{ textAlign: 'right' }}>OI Chg (Abs)</th>
+                          <th style={{ textAlign: 'center' }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          const list = (changeInOiData.long_unwinding || []).filter(r => {
+                            const matchSym = r.symbol.toLowerCase().includes(changeInOiFilter.toLowerCase());
+                            const matchSeg = changeInOiSegment === 'all' || 
+                              (changeInOiSegment === 'stocks' && !r.is_index) || 
+                              (changeInOiSegment === 'indices' && r.is_index);
+                            return matchSym && matchSeg;
+                          });
+
+                          if (list.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                                  No Long Unwinding contracts match the filters.
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return list.slice(0, 10).map((row, idx) => {
+                            const isOpt = row.instrument_type.includes("Option") || row.strike_price > 0;
+                            const contractLabel = isOpt 
+                              ? `${row.strike_price} ${row.option_type}` 
+                              : "Future";
+                            return (
+                              <tr key={row.symbol + '-' + row.strike_price + '-' + row.option_type + '-' + idx}>
+                                <td>
+                                  <strong style={{ color: '#60a5fa' }}>{row.symbol}</strong>
+                                  <span style={{ fontSize: '0.65rem', marginLeft: '0.3rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)', padding: '0.1rem 0.3rem', borderRadius: '4px' }}>
+                                    {row.is_index ? "IDX" : "STK"}
+                                  </span>
+                                </td>
+                                <td style={{ fontSize: '0.8rem' }}>
+                                  <div>{contractLabel}</div>
+                                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{row.expiry_date}</div>
+                                </td>
+                                <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                                  {row.ltp.toLocaleString('en-IN', { minimumFractionDigits: 1 })}
+                                </td>
+                                <td style={{ textAlign: 'right', fontWeight: 600, color: '#ef4444' }}>
+                                  {row.pct_change_in_ltp}%
+                                </td>
+                                <td style={{ textAlign: 'right', fontWeight: 700, color: '#f43f5e' }}>
+                                  {row.pct_change_in_oi}%
+                                </td>
+                                <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>
+                                  {row.change_in_oi.toLocaleString()}
+                                </td>
+                                <td style={{ textAlign: 'center' }}>
+                                  <button
+                                    className="outline"
+                                    style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}
+                                    onClick={() => {
+                                      setSymbol(row.symbol);
+                                      setSelectedExpiry('');
+                                      setActiveTab('workbench');
+                                      fetchOptionChain(row.symbol, '');
+                                    }}
+                                  >
+                                    Analyze
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+              </div>
+            </>
+          )}
+
+        </main>
+      )}
       </div>
     </div>
   );
 }
+
+
+

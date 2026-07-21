@@ -14,6 +14,8 @@ logger = logging.getLogger("main")
 from nse_fetcher import fetcher
 from greeks_engine import calculate_option_greeks, get_portfolio_payoff_and_greeks
 from strategist_engine import get_recommendations
+from services.scanner_service import start_scanner, global_state, StrategyConfig
+from services.nday_high_service import start_nday_scanner, nday_state
 
 app = FastAPI(title="Option Strategy Builder API", version="1.0.0")
 
@@ -189,5 +191,102 @@ def get_strategies_directory():
         }
     ]
 
+class ScanRequestSchema(BaseModel):
+    universe: str = Field(default="nifty_fo", description="Universe: 'nifty_fo' or 'nifty_500'")
+    rsi_len: int = Field(default=14, description="Wilder RSI length")
+    use_vwap_adjusted_rsi: bool = Field(default=True, description="Adjust price based on calendar year VWAP")
+    vwap_smoothing: int = Field(default=20, description="VWAP smoothing length")
+    vwap_anchor: str = Field(default="year", description="VWAP anchor: 'year', 'month', 'week'")
+    ma_len: int = Field(default=50, description="MA filter length")
+    vol_ma_len: int = Field(default=20, description="Volume MA length")
+    min_vol_multiplier: float = Field(default=1.5, description="Min volume multiplier")
+    atr_len: int = Field(default=14, description="ATR length")
+
+
+class NdayHighScanRequestSchema(BaseModel):
+    universe: str = Field(default="nifty_fo", description="Universe: 'nifty_fo' or 'nifty_500'")
+    lookbacks: List[int] = Field(
+        default=[520, 780, 1040, 1300, 1560, 1820, 2080, 2340, 2600],
+        description="Lookback windows in trading days (~2yr to ~10yr)"
+    )
+
+@app.post("/api/scanner/run")
+def run_scanner_api(req: ScanRequestSchema):
+    try:
+        cfg = StrategyConfig(
+            rsi_len=req.rsi_len,
+            use_vwap_adjusted_rsi=req.use_vwap_adjusted_rsi,
+            vwap_smoothing=req.vwap_smoothing,
+            vwap_anchor=req.vwap_anchor,
+            ma_len=req.ma_len,
+            vol_ma_len=req.vol_ma_len,
+            min_vol_multiplier=req.min_vol_multiplier,
+            atr_len=req.atr_len
+        )
+        res = start_scanner(req.universe, cfg)
+        return res
+    except Exception as e:
+        logger.error(f"Error starting scanner: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/scanner/status")
+def get_scanner_status_api():
+    return global_state.get_status()
+
+@app.get("/api/scanner/results")
+def get_scanner_results_api():
+    return global_state.get_results()
+
+
+# ---------------------------------------------------------------------------
+# N-Day High (Multi-Year Breakout) Scanner Endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/api/breakout/run")
+def run_nday_scanner_api(req: NdayHighScanRequestSchema):
+    try:
+        res = start_nday_scanner(req.universe, req.lookbacks)
+        return res
+    except Exception as e:
+        logger.error(f"Error starting N-Day High scanner: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/breakout/status")
+def get_nday_scanner_status_api():
+    return nday_state.get_status()
+
+
+@app.get("/api/breakout/results")
+def get_nday_scanner_results_api():
+    return nday_state.get_results()
+
+
+# ---------------------------------------------------------------------------
+# NSE OI Spurts Leaderboard Endpoint
+# ---------------------------------------------------------------------------
+
+@app.get("/api/nse/oi-spurts")
+def get_nse_oi_spurts_api():
+    try:
+        res = fetcher.fetch_live_oi_spurts()
+        return res
+    except Exception as e:
+        logger.error(f"Error fetching OI spurts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/nse/change-in-oi")
+def get_nse_change_in_oi_api():
+    try:
+        res = fetcher.fetch_live_change_in_oi()
+        return res
+    except Exception as e:
+        logger.error(f"Error fetching Change in OI: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8005)
+
+
