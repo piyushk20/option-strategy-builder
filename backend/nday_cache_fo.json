@@ -1,5 +1,5 @@
 {
-  "timestamp": 1784655098.3930445,
+  "timestamp": 1788714308.0827267,
   "lookbacks": [
     520,
     780,
@@ -13,78 +13,12 @@
   ],
   "results": [
     {
-      "symbol": "FEDERALBNK",
-      "name": "FEDERALBNK F&O Stock",
-      "industry": "Derivative Segment",
-      "close": 356.05,
-      "high": 356.75,
-      "change_pct": 1.51,
-      "matched_lookbacks": [
-        520,
-        780,
-        1040,
-        1300,
-        1560,
-        1820,
-        2080,
-        2340,
-        2600
-      ],
-      "max_lookback_hit": 2600,
-      "years_equivalent": 10.0,
-      "is_fo": true
-    },
-    {
-      "symbol": "LUPIN",
-      "name": "LUPIN F&O Stock",
-      "industry": "Derivative Segment",
-      "close": 2514.8,
-      "high": 2523.7,
-      "change_pct": 1.46,
-      "matched_lookbacks": [
-        520,
-        780,
-        1040,
-        1300,
-        1560,
-        1820,
-        2080,
-        2340,
-        2600
-      ],
-      "max_lookback_hit": 2600,
-      "years_equivalent": 10.0,
-      "is_fo": true
-    },
-    {
-      "symbol": "MANAPPURAM",
-      "name": "MANAPPURAM F&O Stock",
-      "industry": "Derivative Segment",
-      "close": 351.75,
-      "high": 353.5,
-      "change_pct": 4.35,
-      "matched_lookbacks": [
-        520,
-        780,
-        1040,
-        1300,
-        1560,
-        1820,
-        2080,
-        2340,
-        2600
-      ],
-      "max_lookback_hit": 2600,
-      "years_equivalent": 10.0,
-      "is_fo": true
-    },
-    {
       "symbol": "SOLARINDS",
       "name": "SOLARINDS F&O Stock",
       "industry": "Derivative Segment",
-      "close": 19045.0,
-      "high": 19143.0,
-      "change_pct": 0.09,
+      "close": 21445.0,
+      "high": 21695.0,
+      "change_pct": -0.26,
       "matched_lookbacks": [
         520,
         780,
@@ -101,83 +35,21 @@
       "is_fo": true
     },
     {
-      "symbol": "SUNPHARMA",
-      "name": "SUNPHARMA F&O Stock",
+      "symbol": "RBLBANK",
+      "name": "RBLBANK F&O Stock",
       "industry": "Derivative Segment",
-      "close": 1961.9,
-      "high": 1966.5,
-      "change_pct": 0.28,
+      "close": 414.35,
+      "high": 417.05,
+      "change_pct": 1.53,
       "matched_lookbacks": [
         520,
         780,
         1040,
         1300,
-        1560,
-        1820,
-        2080,
-        2340,
-        2600
+        1560
       ],
-      "max_lookback_hit": 2600,
-      "years_equivalent": 10.0,
-      "is_fo": true
-    },
-    {
-      "symbol": "TITAN",
-      "name": "TITAN F&O Stock",
-      "industry": "Derivative Segment",
-      "close": 4688.7,
-      "high": 4691.7,
-      "change_pct": 0.98,
-      "matched_lookbacks": [
-        520,
-        780,
-        1040,
-        1300,
-        1560,
-        1820,
-        2080,
-        2340,
-        2600
-      ],
-      "max_lookback_hit": 2600,
-      "years_equivalent": 10.0,
-      "is_fo": true
-    },
-    {
-      "symbol": "LAURUSLABS",
-      "name": "LAURUSLABS F&O Stock",
-      "industry": "Derivative Segment",
-      "close": 1593.2,
-      "high": 1600.1,
-      "change_pct": 2.2,
-      "matched_lookbacks": [
-        520,
-        780,
-        1040,
-        1300,
-        1560,
-        1820,
-        2080,
-        2340
-      ],
-      "max_lookback_hit": 2340,
-      "years_equivalent": 9.0,
-      "is_fo": true
-    },
-    {
-      "symbol": "ADANIENSOL",
-      "name": "ADANIENSOL F&O Stock",
-      "industry": "Derivative Segment",
-      "close": 1741.6,
-      "high": 1789.0,
-      "change_pct": 0.7,
-      "matched_lookbacks": [
-        520,
-        780
-      ],
-      "max_lookback_hit": 780,
-      "years_equivalent": 3.0,
+      "max_lookback_hit": 1560,
+      "years_equivalent": 6.0,
       "is_fo": true
     }
   ]

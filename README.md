@@ -7,12 +7,16 @@ An institutional-grade, full-stack options strategy builder tailored specificall
 ## 🚀 Key Features
 
 - **Live NSE Options Chain Integration**: Real-time fetching of National Stock Exchange (NSE) indices and 215 F&O stocks with zero blocking.
-- **Change in Open Interest (OI) Momentum Scanner**: Interactive dashboard tracking F&O contracts with the highest positioning shifts, categorized into 4 momentum quadrants:
-  - **Long Build-up** (Rise in OI + Rise in Price)
-  - **Short Covering** (Fall in OI + Rise in Price)
-  - **Short Build-up** (Rise in OI + Fall in Price)
-  - **Long Unwinding** (Fall in OI + Fall in Price)
-  Equipped with search filters, segment toggles (All / Stocks / Indices), and direct analysis links to the Option Workbench.
+- **⚡ Elder Impulse Pro Scanner**: Multi-indicator confluence scanner combining Dr. Alexander Elder's Impulse System (`EMA(13) + MACD Hist`), Supertrend (`Factor 3.0, ATR 10`), and Wilder's `ADX(14) ≥ 25` / `DMI`. Features multi-universe scanning (**Nifty 50**, **Nifty 200**, **Midcap**, **Smallcap**) and multi-timeframe analysis (**1 Hour**, **4 Hours**, **1 Day**, **1 Week**).
+- **🔥 Advanced High Momentum Stock Scanner**: Institutional swing/momentum scanner implementing Dhan's 3-step checklist: EMA Stack Alignment (`20 > 50 > 200 EMA`), Trend Strength (`Wilder's ADX(14) ≥ 20`), and Comparative Relative Strength (`CRS` outperformance vs Nifty 50). Renders Target Price (60% profit booking), Stop Loss (50 EMA), Trailing Exit Rules, Composite Score, and direct Strategy Trading integration.
+- **📊 Open Interest (OI) Bar Graph & Insights**: Dhan.co-styled interactive chart displaying grouped **Call OI (Gold)** vs **Put OI (Purple)** per strike around ATM, with vertical ATM reference line, top summary metrics (Total Put OI, Total Call OI, PCR, Max Pain, ATM IV), strike range selectors, and Total OI vs Change in OI toggles.
+- **⚡ Futures Buildup Tracker**: Dedicated dashboard fetching live Stock & Index Futures contracts from NSE, structured into 4 positioning quadrants:
+  - **Long Build-up** (Price Rise + OI Rise) — Bullish Buyers
+  - **Short Build-up** (Price Fall + OI Rise) — Bearish Sellers
+  - **Long Unwinding** (Price Fall + OI Fall) — Longs Liquidating
+  - **Short Covering** (Price Rise + OI Fall) — Shorts Liquidating
+  Renders **Symbol**, **Instrument Name** (`Stock Futures` / `Index Futures` + Expiry Date), **LTP** (with % Price Change), **OI (Contracts)**, **% Change in OI**, and **Action** button.
+- **Change in Open Interest (OI) Momentum Scanner**: Interactive dashboard tracking F&O contracts with the highest positioning shifts across all 4 momentum quadrants.
 - **Dynamic Lot Size Synchronization**: Pulls and caches exact F&O lot sizes directly from the Zerodha Kite Instruments API for precise `Per Lot` P&L calculations.
 - **Elite Strategist Engine**: Automatically computes and ranks the top directional (buying) and non-directional (selling) strategies based on the current Put-Call Ratio (PCR) and Max Pain metrics.
 - **Advanced Strategy Templates**: Single-click setup for complex, professional-grade strategies:

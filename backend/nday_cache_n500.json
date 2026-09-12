@@ -1,5 +1,5 @@
 {
-  "timestamp": 1784148668.3115153,
+  "timestamp": 1786383486.51027,
   "lookbacks": [
     520,
     780,
@@ -13,34 +13,12 @@
   ],
   "results": [
     {
-      "symbol": "CEMPRO",
-      "name": "Cemindia Projects Ltd.",
-      "industry": "Construction",
-      "close": 1596.6,
-      "high": 1647.3,
-      "change_pct": 0.81,
-      "matched_lookbacks": [
-        520,
-        780,
-        1040,
-        1300,
-        1560,
-        1820,
-        2080,
-        2340,
-        2600
-      ],
-      "max_lookback_hit": 2600,
-      "years_equivalent": 10.0,
-      "is_fo": false
-    },
-    {
-      "symbol": "DIVISLAB",
-      "name": "Divi's Laboratories Ltd.",
+      "symbol": "AUROPHARMA",
+      "name": "Aurobindo Pharma Ltd.",
       "industry": "Healthcare",
-      "close": 7188.5,
-      "high": 7208.5,
-      "change_pct": 3.6,
+      "close": 1648.0,
+      "high": 1671.9,
+      "change_pct": -0.6,
       "matched_lookbacks": [
         520,
         780,
@@ -57,11 +35,55 @@
       "is_fo": true
     },
     {
-      "symbol": "IPCALAB",
-      "name": "Ipca Laboratories Ltd.",
-      "industry": "Healthcare",
-      "close": 1840.4,
-      "high": 1850.5,
+      "symbol": "BHARATFORG",
+      "name": "Bharat Forge Ltd.",
+      "industry": "Automobile and Auto Components",
+      "close": 2093.1,
+      "high": 2295.0,
+      "change_pct": -7.6,
+      "matched_lookbacks": [
+        520,
+        780,
+        1040,
+        1300,
+        1560,
+        1820,
+        2080,
+        2340,
+        2600
+      ],
+      "max_lookback_hit": 2600,
+      "years_equivalent": 10.0,
+      "is_fo": true
+    },
+    {
+      "symbol": "GRASIM",
+      "name": "Grasim Industries Ltd.",
+      "industry": "Construction Materials",
+      "close": 3380.5,
+      "high": 3411.1,
+      "change_pct": 1.73,
+      "matched_lookbacks": [
+        520,
+        780,
+        1040,
+        1300,
+        1560,
+        1820,
+        2080,
+        2340,
+        2600
+      ],
+      "max_lookback_hit": 2600,
+      "years_equivalent": 10.0,
+      "is_fo": true
+    },
+    {
+      "symbol": "M&MFIN",
+      "name": "Mahindra & Mahindra Financial Services Ltd.",
+      "industry": "Financial Services",
+      "close": 412.3,
+      "high": 415.0,
       "change_pct": 0.94,
       "matched_lookbacks": [
         520,
@@ -79,12 +101,12 @@
       "is_fo": false
     },
     {
-      "symbol": "JBCHEPHARM",
-      "name": "J.B. Chemicals & Pharmaceuticals Ltd.",
-      "industry": "Healthcare",
-      "close": 2487.6,
-      "high": 2491.0,
-      "change_pct": 1.12,
+      "symbol": "MINDACORP",
+      "name": "Minda Corporation Ltd.",
+      "industry": "Automobile and Auto Components",
+      "close": 736.1,
+      "high": 750.8,
+      "change_pct": 2.0,
       "matched_lookbacks": [
         520,
         780,
@@ -101,12 +123,12 @@
       "is_fo": false
     },
     {
-      "symbol": "PHOENIXLTD",
-      "name": "Phoenix Mills Ltd.",
-      "industry": "Realty",
-      "close": 2132.5,
-      "high": 2169.8,
-      "change_pct": -1.0,
+      "symbol": "MOTHERSON",
+      "name": "Samvardhana Motherson International Ltd.",
+      "industry": "Automobile and Auto Components",
+      "close": 167.99,
+      "high": 172.0,
+      "change_pct": -0.3,
       "matched_lookbacks": [
         520,
         780,
@@ -123,12 +145,12 @@
       "is_fo": true
     },
     {
-      "symbol": "TORNTPHARM",
-      "name": "Torrent Pharmaceuticals Ltd.",
-      "industry": "Healthcare",
-      "close": 4973.5,
-      "high": 5010.0,
-      "change_pct": 0.45,
+      "symbol": "TITAN",
+      "name": "Titan Company Ltd.",
+      "industry": "Consumer Durables",
+      "close": 5090.0,
+      "high": 5122.2,
+      "change_pct": 3.02,
       "matched_lookbacks": [
         520,
         780,
@@ -145,12 +167,12 @@
       "is_fo": true
     },
     {
-      "symbol": "WELCORP",
-      "name": "Welspun Corp Ltd.",
-      "industry": "Capital Goods",
-      "close": 1683.4,
-      "high": 1694.8,
-      "change_pct": 3.92,
+      "symbol": "TVSMOTOR",
+      "name": "TVS Motor Company Ltd.",
+      "industry": "Automobile and Auto Components",
+      "close": 4466.2,
+      "high": 4475.0,
+      "change_pct": 0.57,
       "matched_lookbacks": [
         520,
         780,
@@ -164,15 +186,15 @@
       ],
       "max_lookback_hit": 2600,
       "years_equivalent": 10.0,
-      "is_fo": false
+      "is_fo": true
     },
     {
       "symbol": "LAURUSLABS",
       "name": "Laurus Labs Ltd.",
       "industry": "Healthcare",
-      "close": 1560.7,
-      "high": 1573.5,
-      "change_pct": 0.13,
+      "close": 1854.0,
+      "high": 1870.8,
+      "change_pct": 0.53,
       "matched_lookbacks": [
         520,
         780,
@@ -188,29 +210,32 @@
       "is_fo": true
     },
     {
-      "symbol": "BIOCON",
-      "name": "Biocon Ltd.",
+      "symbol": "ASTERDM",
+      "name": "Aster DM Quality Care Ltd.",
       "industry": "Healthcare",
-      "close": 437.3,
-      "high": 444.5,
-      "change_pct": 6.41,
+      "close": 867.15,
+      "high": 891.3,
+      "change_pct": -0.29,
       "matched_lookbacks": [
         520,
         780,
         1040,
-        1300
+        1300,
+        1560,
+        1820,
+        2080
       ],
-      "max_lookback_hit": 1300,
-      "years_equivalent": 5.0,
-      "is_fo": true
+      "max_lookback_hit": 2080,
+      "years_equivalent": 8.0,
+      "is_fo": false
     },
     {
-      "symbol": "SHYAMMETL",
-      "name": "Shyam Metalics and Energy Ltd.",
-      "industry": "Capital Goods",
-      "close": 1035.95,
-      "high": 1046.0,
-      "change_pct": 0.64,
+      "symbol": "LALPATHLAB",
+      "name": "Dr. Lal Path Labs Ltd.",
+      "industry": "Healthcare",
+      "close": 1954.0,
+      "high": 1973.5,
+      "change_pct": 1.16,
       "matched_lookbacks": [
         520,
         780,
@@ -221,19 +246,110 @@
       "is_fo": false
     },
     {
-      "symbol": "ADANIENSOL",
-      "name": "Adani Energy Solutions Ltd.",
-      "industry": "Power",
-      "close": 1690.3,
-      "high": 1713.9,
-      "change_pct": 2.78,
+      "symbol": "PAYTM",
+      "name": "One 97 Communications Ltd.",
+      "industry": "Financial Services",
+      "close": 1584.1,
+      "high": 1598.5,
+      "change_pct": 9.88,
+      "matched_lookbacks": [
+        520,
+        780,
+        1040
+      ],
+      "max_lookback_hit": 1040,
+      "years_equivalent": 4.0,
+      "is_fo": true
+    },
+    {
+      "symbol": "SONACOMS",
+      "name": "Sona BLW Precision Forgings Ltd.",
+      "industry": "Automobile and Auto Components",
+      "close": 812.5,
+      "high": 836.9,
+      "change_pct": -0.68,
+      "matched_lookbacks": [
+        520,
+        780,
+        1040
+      ],
+      "max_lookback_hit": 1040,
+      "years_equivalent": 4.0,
+      "is_fo": true
+    },
+    {
+      "symbol": "VIJAYA",
+      "name": "Vijaya Diagnostic Centre Ltd.",
+      "industry": "Healthcare",
+      "close": 1392.6,
+      "high": 1440.0,
+      "change_pct": 3.07,
+      "matched_lookbacks": [
+        520,
+        780,
+        1040
+      ],
+      "max_lookback_hit": 1040,
+      "years_equivalent": 4.0,
+      "is_fo": false
+    },
+    {
+      "symbol": "GLAND",
+      "name": "Gland Pharma Ltd.",
+      "industry": "Healthcare",
+      "close": 2667.3,
+      "high": 2685.0,
+      "change_pct": 2.55,
       "matched_lookbacks": [
         520,
         780
       ],
       "max_lookback_hit": 780,
       "years_equivalent": 3.0,
-      "is_fo": true
+      "is_fo": false
+    },
+    {
+      "symbol": "SYRMA",
+      "name": "Syrma SGS Technology Ltd.",
+      "industry": "Capital Goods",
+      "close": 1516.4,
+      "high": 1522.0,
+      "change_pct": 6.44,
+      "matched_lookbacks": [
+        520,
+        780
+      ],
+      "max_lookback_hit": 780,
+      "years_equivalent": 3.0,
+      "is_fo": false
+    },
+    {
+      "symbol": "LLOYDSME",
+      "name": "Lloyds Metals And Energy Ltd.",
+      "industry": "Metals & Mining",
+      "close": 2052.8,
+      "high": 2125.0,
+      "change_pct": -2.3,
+      "matched_lookbacks": [
+        520
+      ],
+      "max_lookback_hit": 520,
+      "years_equivalent": 2.0,
+      "is_fo": false
+    },
+    {
+      "symbol": "MEDANTA",
+      "name": "Global Health Ltd.",
+      "industry": "Healthcare",
+      "close": 1476.2,
+      "high": 1491.0,
+      "change_pct": 1.42,
+      "matched_lookbacks": [
+        520
+      ],
+      "max_lookback_hit": 520,
+      "years_equivalent": 2.0,
+      "is_fo": false
     }
   ]
 }

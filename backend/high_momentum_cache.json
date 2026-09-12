@@ -1,0 +1,45 @@
+{
+  "timestamp": "Sat Sep 12 13:55:59 2026",
+  "candidates": [
+    {
+      "symbol": "KOTAKBANK",
+      "close": 419.0,
+      "ema20": 413.0,
+      "ema50": 403.11,
+      "ema200": 399.17,
+      "adx": 43.0,
+      "crs_ratio": 0.01791,
+      "crs_ema": 0.01651,
+      "crs_outperforming": true,
+      "market_cap_cr": 416806.8,
+      "green_candle": true,
+      "target_pct": 6.0,
+      "entry": 419.0,
+      "target_price": 444.14,
+      "stop_price": 402.24,
+      "trail_rule": "Trail remaining 40% position until 20 EMA crosses BELOW 50 EMA",
+      "score": 107.5,
+      "direction": "long"
+    },
+    {
+      "symbol": "ADANIENT",
+      "close": 3060.0,
+      "ema20": 3010.73,
+      "ema50": 2997.02,
+      "ema200": 2695.14,
+      "adx": 20.3,
+      "crs_ratio": 0.13078,
+      "crs_ema": 0.11915,
+      "crs_outperforming": true,
+      "market_cap_cr": 414239.1,
+      "green_candle": true,
+      "target_pct": 6.0,
+      "entry": 3060.0,
+      "target_price": 3243.6,
+      "stop_price": 2937.6,
+      "trail_rule": "Trail remaining 40% position until 20 EMA crosses BELOW 50 EMA",
+      "score": 97.92,
+      "direction": "long"
+    }
+  ]
+}

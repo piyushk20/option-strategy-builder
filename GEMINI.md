@@ -81,13 +81,14 @@ Be pragmatic. Be reliable. Self-anneal.
 - **Workspace Path**: `c:\Users\HP\optionstartegybuilder`
 - **Backend Port**: 8005
 - **Frontend Port**: 5174
-- **Last Verified Functional State**: 2026-07-21
+- **Last Verified Functional State**: 2026-07-27
 - **Tested & Supported Assets**: 23 F&O assets (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, RELIANCE, TCS, INFY, HDFCBANK, ICICIBANK, SBIN, ITC, BHARTIARTL, LT, AXISBANK, KOTAKBANK, TATAMOTORS, TATASTEEL, BAJFINANCE, MARUTI, SUNPHARMA, HCLTECH, M&M, WIPRO)
 - **Active Endpoints**:
   - GET `http://127.0.0.1:8005/health`
   - GET `http://127.0.0.1:8005/api/nse/chain?symbol={symbol}&expiry={expiry}`
   - GET `http://127.0.0.1:8005/api/nse/oi-spurts`
   - GET `http://127.0.0.1:8005/api/nse/change-in-oi`
+  - GET `http://127.0.0.1:8005/api/nse/futures-buildup`
   - POST `http://127.0.0.1:8005/api/nse/recommend`
   - POST `http://127.0.0.1:8005/api/payoff`
 - **Frontend Proxy Configuration**: configured in `frontend/vite.config.ts` targeting `http://127.0.0.1:8005`

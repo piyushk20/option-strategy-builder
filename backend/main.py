@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse, Response
 from pydantic import BaseModel, Field
 import uvicorn
 import logging
@@ -16,8 +16,18 @@ from greeks_engine import calculate_option_greeks, get_portfolio_payoff_and_gree
 from strategist_engine import get_recommendations
 from services.scanner_service import start_scanner, global_state, StrategyConfig
 from services.nday_high_service import start_nday_scanner, nday_state
+from services.high_momentum_service import high_momentum_service
+from services.elder_impulse_service import elder_impulse_service
+from services.straddle_service import straddle_service
+from services.oi_crossover_service import oi_crossover_service
+from services.vcp_service import vcp_scanner_service
+from services.backtest_service import backtest_service
+
 
 app = FastAPI(title="Option Strategy Builder API", version="1.0.0")
+
+# Start straddle polling service on startup
+straddle_service.start_polling()
 
 # Narrow CORS policy for security
 app.add_middleware(
@@ -85,6 +95,26 @@ def get_nse_chain(symbol: str = "NIFTY", expiry: Optional[str] = None):
     except Exception as e:
         logger.error(f"Error fetching option chain for {clean_symbol}: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve option chain.")
+
+@app.get("/api/nse/straddle-chart")
+def get_straddle_chart(symbol: str = "NIFTY", expiry: Optional[str] = None, strike: Optional[int] = None, timeframe: int = 5):
+    try:
+        data = straddle_service.get_straddle_chart_data(symbol, expiry, strike, timeframe)
+        if "error" in data:
+            raise HTTPException(status_code=400, detail=data["error"])
+        return data
+    except Exception as e:
+        logger.error(f"Error fetching straddle chart for {symbol}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve straddle chart.")
+
+@app.get("/api/nse/watchlist")
+def get_watchlist():
+    try:
+        data = straddle_service.get_watchlist_summary()
+        return data
+    except Exception as e:
+        logger.error(f"Error fetching watchlist summary: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve watchlist.")
 
 @app.post("/api/nse/recommend")
 def recommend_strategies(req: RecommendationRequestSchema):
@@ -286,7 +316,214 @@ def get_nse_change_in_oi_api():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/nse/futures-buildup")
+def get_nse_futures_buildup_api():
+    try:
+        res = fetcher.fetch_live_futures_buildup()
+        return res
+    except Exception as e:
+        logger.error(f"Error fetching Futures Buildup: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class HighMomentumRequest(BaseModel):
+    direction: str = "long"
+    adx_min: float = 20.0
+    mcap_floor: float = 20000.0
+
+
+@app.post("/api/high-momentum/run")
+def run_high_momentum_scan_api(req: HighMomentumRequest):
+    started = high_momentum_service.start_scan_async(
+        direction=req.direction,
+        adx_min=req.adx_min,
+        mcap_floor=req.mcap_floor
+    )
+    if not started:
+        return {"status": "already_running", "message": "Scan is already in progress."}
+    return {"status": "started", "message": "High momentum scan initiated."}
+
+
+@app.get("/api/high-momentum/status")
+def get_high_momentum_status_api():
+    return high_momentum_service.get_status()
+
+
+@app.get("/api/high-momentum/results")
+def get_high_momentum_results_api():
+    return high_momentum_service.get_results()
+
+
+class ElderImpulseRequest(BaseModel):
+    universe: str = "nifty_200"
+    timeframe: str = "1d"
+    adx_threshold: float = 25.0
+    ema_length: int = 13
+    st_factor: float = 3.0
+    st_atr_len: int = 10
+
+
+@app.post("/api/elder-impulse/run")
+def run_elder_impulse_scan_api(req: ElderImpulseRequest):
+    started = elder_impulse_service.start_scan_async(
+        universe=req.universe,
+        timeframe=req.timeframe,
+        adx_threshold=req.adx_threshold,
+        ema_length=req.ema_length,
+        st_factor=req.st_factor,
+        st_atr_len=req.st_atr_len
+    )
+    if not started:
+        return {"status": "already_running", "message": "Scan is already in progress."}
+    return {"status": "started", "message": f"Elder Impulse Pro scan initiated for {req.universe.upper()} ({req.timeframe.upper()})."}
+
+
+@app.get("/api/elder-impulse/status")
+def get_elder_impulse_status_api():
+    return elder_impulse_service.get_status()
+
+
+@app.get("/api/elder-impulse/results")
+def get_elder_impulse_results_api():
+    return elder_impulse_service.get_results()
+
+
+# ---------------------------------------------------------------------------
+# NSE OI Crossover Scanner Endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/api/oi-crossover/run")
+def run_oi_crossover_scan_api():
+    started = oi_crossover_service.start_scan_async()
+    if not started:
+        return {"status": "already_running", "message": "Scan is already in progress."}
+    return {"status": "started", "message": "OI crossover scan initiated."}
+
+
+@app.get("/api/oi-crossover/status")
+def get_oi_crossover_status_api():
+    return oi_crossover_service.get_status()
+
+
+@app.get("/api/oi-crossover/results")
+def get_oi_crossover_results_api():
+    return oi_crossover_service.get_results()
+
+
+# ---------------------------------------------------------------------------
+# Minervini VCP Strategy Scanner Endpoints
+# ---------------------------------------------------------------------------
+
+class VCPScanRequest(BaseModel):
+    universe: str = "nifty_200"
+    tickers: Optional[List[str]] = None
+    rs_min_rating: float = 70.0
+    min_contractions: int = 2
+    contraction_tol: float = 0.90
+    pivot_strength: int = 5
+    breakout_vol_mult: float = 1.5
+    stop_buffer_pct: float = 1.0
+    r_multiple_target: float = 3.0
+    late_base_warn_at: int = 4
+    use_market_filter: bool = True
+    enable_code3: bool = False
+
+
+class VCPBacktestRequest(BaseModel):
+    symbol: str
+    initial_capital: float = 1000000.0
+    pct_per_trade: float = 10.0
+    r_target: float = 3.0
+    use_market_filter: bool = True
+
+
+@app.post("/api/vcp/run")
+def run_vcp_scan_api(req: VCPScanRequest):
+    started = vcp_scanner_service.start_scan_async(
+        universe=req.universe,
+        tickers=req.tickers,
+        rs_min_rating=req.rs_min_rating,
+        min_contractions=req.min_contractions,
+        contraction_tol=req.contraction_tol,
+        pivot_strength=req.pivot_strength,
+        breakout_vol_mult=req.breakout_vol_mult,
+        stop_buffer_pct=req.stop_buffer_pct,
+        r_multiple_target=req.r_multiple_target,
+        late_base_warn_at=req.late_base_warn_at,
+        use_market_filter=req.use_market_filter,
+        enable_code3=req.enable_code3
+    )
+    if not started:
+        return {"status": "already_running", "message": "Scan is already in progress."}
+    return {"status": "started", "message": f"Minervini VCP scan initiated for {req.universe.upper()}."}
+
+
+@app.get("/api/vcp/status")
+def get_vcp_status_api():
+    return vcp_scanner_service.get_status()
+
+
+@app.get("/api/vcp/results")
+def get_vcp_results_api():
+    return vcp_scanner_service.get_results()
+
+
+@app.get("/api/vcp/chart-data")
+def get_vcp_chart_data_api(symbol: str, period: str = "1y"):
+    return vcp_scanner_service.get_chart_data(symbol, period)
+
+
+@app.get("/api/vcp/export")
+def export_vcp_data_api(format: str = "json"):
+    content = vcp_scanner_service.export_data(format)
+    media_type = "text/csv" if format.lower() == "csv" else "application/json"
+    headers = {"Content-Disposition": f"attachment; filename=minervini_vcp_scan.{format.lower()}"}
+    return Response(content=content, media_type=media_type, headers=headers)
+
+
+@app.post("/api/vcp/backtest")
+def run_vcp_backtest_api(req: VCPBacktestRequest):
+    custom_cfg = {
+        "initial_capital": req.initial_capital,
+        "pct_per_trade": req.pct_per_trade,
+        "r_target": req.r_target,
+        "use_market_filter": req.use_market_filter
+    }
+    return vcp_scanner_service.run_single_backtest(req.symbol, custom_cfg)
+
+
+# ---------------------------------------------------------------------------
+# Backtest Lab Endpoints (VectorBT + QuantStats)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/backtest/status")
+def get_backtest_status_api():
+    return backtest_service.get_status()
+
+
+@app.get("/api/backtest/summary")
+def get_backtest_summary_api():
+    return backtest_service.get_summary()
+
+
+@app.post("/api/backtest/run")
+def run_backtest_api():
+    started = backtest_service.start_backtest_async()
+    if not started:
+        return {"status": "already_running", "message": "Backtest simulation is already executing."}
+    return {"status": "started", "message": "VectorBT backtest suite initiated."}
+
+
+@app.get("/api/backtest/tearsheet")
+def get_backtest_tearsheet_api(report: Optional[str] = None, asset: Optional[str] = None, strategy: Optional[str] = None):
+    html = backtest_service.get_tearsheet_html(report_name=report, asset=asset, strategy=strategy)
+    if not html:
+        raise HTTPException(status_code=404, detail="Tearsheet report not found.")
+    return HTMLResponse(content=html, status_code=200)
+
+
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8005)
+
 
 

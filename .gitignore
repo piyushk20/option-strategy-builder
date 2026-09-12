@@ -29,5 +29,6 @@ Workspaces/
 *.sw?
 .gemini/
 
-# Logs
+# Logs & Temp
 *.log
+.tmp/
