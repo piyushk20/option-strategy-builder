@@ -1,5 +1,5 @@
 {
-  "timestamp": 1788714308.0827267,
+  "timestamp": 1789283432.3696032,
   "lookbacks": [
     520,
     780,
@@ -13,12 +13,12 @@
   ],
   "results": [
     {
-      "symbol": "SOLARINDS",
-      "name": "SOLARINDS F&O Stock",
+      "symbol": "LAURUSLABS",
+      "name": "LAURUSLABS F&O Stock",
       "industry": "Derivative Segment",
-      "close": 21445.0,
-      "high": 21695.0,
-      "change_pct": -0.26,
+      "close": 1969.0,
+      "high": 1981.8,
+      "change_pct": 1.23,
       "matched_lookbacks": [
         520,
         780,
@@ -27,29 +27,26 @@
         1560,
         1820,
         2080,
-        2340,
-        2600
+        2340
       ],
-      "max_lookback_hit": 2600,
-      "years_equivalent": 10.0,
+      "max_lookback_hit": 2340,
+      "years_equivalent": 9.0,
       "is_fo": true
     },
     {
-      "symbol": "RBLBANK",
-      "name": "RBLBANK F&O Stock",
+      "symbol": "PAYTM",
+      "name": "PAYTM F&O Stock",
       "industry": "Derivative Segment",
-      "close": 414.35,
-      "high": 417.05,
-      "change_pct": 1.53,
+      "close": 1807.5,
+      "high": 1840.0,
+      "change_pct": 3.94,
       "matched_lookbacks": [
         520,
         780,
-        1040,
-        1300,
-        1560
+        1040
       ],
-      "max_lookback_hit": 1560,
-      "years_equivalent": 6.0,
+      "max_lookback_hit": 1040,
+      "years_equivalent": 4.0,
       "is_fo": true
     }
   ]

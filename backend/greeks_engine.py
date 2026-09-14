@@ -109,10 +109,11 @@ def get_portfolio_payoff_and_greeks(
     spot_range: list, # List of potential stock prices
     t: float,         # Time to expiration in years
     r: float,         # Risk-free rate
-    v: float          # Implied Volatility
+    v: float,         # Implied Volatility
+    target_t: float = None # Optional target date time to expiration in years
 ) -> dict:
     """
-    Computes portfolio payoff at expiration and today's payoff across a range of spot prices,
+    Computes portfolio payoff at expiration, today's payoff, and optional target date payoff across a range of spot prices,
     as well as cumulative Greeks.
     """
     payoff_curve = []
@@ -124,6 +125,7 @@ def get_portfolio_payoff_and_greeks(
     for spot in spot_range:
         exp_pnl = 0.0
         today_pnl = 0.0
+        target_pnl = 0.0
         
         for leg in legs:
             ltype = leg.get("type", "").lower()
@@ -136,31 +138,41 @@ def get_portfolio_payoff_and_greeks(
             
             if ltype == "stock":
                 # Stock Leg
-                # Expiration PnL = (Current Spot - Purchase Price) * quantity
                 leg_exp_pnl = (spot - premium) * qty * mult
                 leg_today_pnl = (spot - premium) * qty * mult
+                leg_target_pnl = (spot - premium) * qty * mult
             else:
                 # Option Leg
-                # Expiration Payoff = max(Spot - Strike, 0) for call, max(Strike - Spot, 0) for put
                 if ltype == "call":
                     payoff = max(spot - strike, 0.0)
                 else:
                     payoff = max(strike - spot, 0.0)
                 
-                # Expiration PnL = (Payoff - Premium Paid) * quantity * multiplier
                 leg_exp_pnl = (payoff - premium) * qty * mult
                 
-                # Today PnL = (Option BS Price - Premium Paid) * quantity * multiplier
+                # Today PnL
                 greeks = calculate_option_greeks(spot, strike, t, r, v, ltype)
                 leg_today_pnl = (greeks["price"] - premium) * qty * mult
                 
+                # Target Date PnL
+                if target_t is not None:
+                    if target_t <= 0.00001:
+                        leg_target_pnl = leg_exp_pnl
+                    else:
+                        target_greeks = calculate_option_greeks(spot, strike, target_t, r, v, ltype)
+                        leg_target_pnl = (target_greeks["price"] - premium) * qty * mult
+                else:
+                    leg_target_pnl = leg_today_pnl
+                
             exp_pnl += leg_exp_pnl
             today_pnl += leg_today_pnl
+            target_pnl += leg_target_pnl
             
         payoff_curve.append({
             "spot": round(spot, 2),
             "expiration_pnl": round(exp_pnl, 2),
-            "today_pnl": round(today_pnl, 2)
+            "today_pnl": round(today_pnl, 2),
+            "target_date_pnl": round(target_pnl, 2)
         })
         
     # Calculate aggregate Greeks at the current spot price

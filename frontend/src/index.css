@@ -214,12 +214,14 @@ button.outline:hover {
   border-color: var(--text-muted);
 }
 
-/* Option Chain Styling */
 .option-chain-container {
   overflow-x: auto;
+  overflow-y: auto;
+  max-height: 560px;
   margin-top: var(--space-4);
   border-radius: 12px;
   border: 1px solid var(--border-color);
+  position: relative;
 }
 
 .option-chain-table {
@@ -257,13 +259,19 @@ button.outline:hover {
 }
 
 .option-chain-table tr.atm-row td {
-  background: rgba(14, 165, 233, 0.08);
-  border-top: 1px solid rgba(14, 165, 233, 0.3);
-  border-bottom: 1px solid rgba(14, 165, 233, 0.3);
+  background: rgba(245, 158, 11, 0.28) !important;
+  border-top: 2px solid #f59e0b !important;
+  border-bottom: 2px solid #f59e0b !important;
+  color: #ffffff !important;
+  font-weight: 600;
+}
+
+.option-chain-table tr.atm-row:hover td {
+  background: rgba(245, 158, 11, 0.38) !important;
 }
 
 .strike-cell {
-  background: rgba(15, 23, 42, 0.8) !important;
+  background: rgba(15, 23, 42, 0.9) !important;
   font-weight: 700;
   color: var(--color-primary-500);
   min-width: 80px;
@@ -272,6 +280,37 @@ button.outline:hover {
   z-index: 5;
   border-left: 1px solid var(--border-color);
   border-right: 1px solid var(--border-color);
+  transition: all 0.2s ease;
+}
+
+.option-chain-table tr.atm-row .strike-cell,
+.strike-cell.atm-strike-cell {
+  background: linear-gradient(135deg, #f59e0b, #d97706) !important;
+  color: #000000 !important;
+  font-weight: 900 !important;
+  border-top: 2px solid #f59e0b !important;
+  border-bottom: 2px solid #f59e0b !important;
+  border-left: 2px solid #fbbf24 !important;
+  border-right: 2px solid #fbbf24 !important;
+  box-shadow: inset 0 0 12px rgba(245, 158, 11, 0.45), 0 0 16px rgba(245, 158, 11, 0.6) !important;
+}
+
+/* Full Chain Matrix Modal ATM Row Styling */
+.full-chain-matrix-table tr.atm-row td {
+  background: rgba(245, 158, 11, 0.25) !important;
+  border-top: 2px solid #f59e0b !important;
+  border-bottom: 2px solid #f59e0b !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+}
+
+.full-chain-matrix-table tr.atm-row .strike-cell,
+.full-chain-matrix-table tr.atm-row td.atm-matrix-strike {
+  background: linear-gradient(135deg, #f59e0b, #d97706) !important;
+  color: #000000 !important;
+  font-weight: 900 !important;
+  border: 2px solid #fbbf24 !important;
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.7) !important;
 }
 
 .ce-header {
@@ -736,4 +775,271 @@ button.outline:hover {
   border: none;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
+
+/* Payoff Simulation Controls & Sliders */
+.payoff-sim-panel {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.85) 0%, rgba(30, 41, 59, 0.55) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(10px);
+}
+
+.payoff-sim-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+}
+
+@media (max-width: 900px) {
+  .payoff-sim-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.payoff-sim-card {
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.payoff-sim-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.payoff-sim-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.03em;
+}
+
+.payoff-sim-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.payoff-sim-badge {
+  padding: 0.2rem 0.55rem;
+  border-radius: 5px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.payoff-sim-badge.date-badge {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.payoff-sim-badge.price-badge {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+}
+
+.payoff-sim-slider-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.payoff-range-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  outline: none;
+  cursor: pointer;
+  margin: 0.3rem 0;
+}
+
+.payoff-range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #f59e0b;
+  border: 2px solid #ffffff;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.85);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.payoff-range-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 14px rgba(245, 158, 11, 1);
+}
+
+.payoff-range-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #f59e0b;
+  border: 2px solid #ffffff;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.85);
+}
+
+.payoff-range-slider.price-slider::-webkit-slider-thumb {
+  background: #38bdf8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.85);
+}
+
+.payoff-range-slider.price-slider::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 14px rgba(56, 189, 248, 1);
+}
+
+.payoff-range-slider.price-slider::-moz-range-thumb {
+  background: #38bdf8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.85);
+}
+
+.payoff-slider-markers {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.payoff-sim-presets {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.sim-chip {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  color: var(--text-secondary);
+  padding: 0.2rem 0.5rem;
+  border-radius: 5px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.sim-chip:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.sim-chip.active {
+  background: rgba(245, 158, 11, 0.22);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.6);
+  font-weight: 600;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.25);
+}
+
+.sim-chip.price-chip.active {
+  background: rgba(56, 189, 248, 0.22);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.6);
+  font-weight: 600;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.25);
+}
+
+.sim-reset-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-muted);
+  border-radius: 4px;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.7rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  transition: all 0.15s ease;
+}
+
+.sim-reset-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+/* HUD Real-Time Payoff Readout Banner */
+.payoff-hud-banner {
+  margin-top: 1rem;
+  padding: 0.85rem 1.1rem;
+  background: rgba(10, 15, 29, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.9rem;
+  align-items: center;
+}
+
+.hud-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.hud-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.hud-value {
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  line-height: 1.2;
+}
+
+.hud-value.positive {
+  color: #10b981;
+}
+
+.hud-value.negative {
+  color: #f43f5e;
+}
+
+.hud-value.highlight {
+  color: #fbbf24;
+}
+
+.hud-value.spot-highlight {
+  color: #38bdf8;
+}
+
+.hud-sub {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+
 

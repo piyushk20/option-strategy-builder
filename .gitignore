@@ -32,3 +32,5 @@ Workspaces/
 # Logs & Temp
 *.log
 .tmp/
+scratch/
+test_*.py

@@ -22,6 +22,7 @@ from services.straddle_service import straddle_service
 from services.oi_crossover_service import oi_crossover_service
 from services.vcp_service import vcp_scanner_service
 from services.backtest_service import backtest_service
+from services.analyzer_service import analyzer_service
 
 
 app = FastAPI(title="Option Strategy Builder API", version="1.0.0")
@@ -71,6 +72,7 @@ class PayoffRequestSchema(BaseModel):
     spot_min: Optional[float] = None
     spot_max: Optional[float] = None
     spot_step: Optional[float] = None
+    target_t: Optional[float] = Field(default=None, description="Target date time to expiration in years")
 
 class RecommendationRequestSchema(BaseModel):
     symbol: str = Field(default="NIFTY", description="NSE Stock/Index Symbol")
@@ -157,7 +159,7 @@ def get_payoff(req: PayoffRequestSchema):
     legs_dicts = [leg.model_dump() for leg in req.legs]
     
     try:
-        result = get_portfolio_payoff_and_greeks(legs_dicts, spot_range, req.t, req.r, req.v)
+        result = get_portfolio_payoff_and_greeks(legs_dicts, spot_range, req.t, req.r, req.v, req.target_t)
         return result
     except Exception as e:
         logger.error(f"Error calculating portfolio payoff: {e}")
@@ -210,14 +212,44 @@ def get_strategies_directory():
             "reward": "Uncapped"
         },
         {
-            "name": "Collar",
+            "name": "Classic Equity Collar",
             "proficiency": "Intermediate",
             "direction": "Bullish / Capital Protection",
             "volatility": "High Volatility",
             "legs": ["Long Stock", "Buy OTM Put", "Sell OTM Call"],
-            "description": "Own stock and hedge it with a lower strike put, financed by selling an upside call.",
-            "risk": "Capped",
-            "reward": "Capped"
+            "description": "Own underlying stock and hedge it with an OTM protective put, financed by selling an OTM upside call (Synthesizes a Bull Call Spread).",
+            "risk": "Capped (Defined Risk)",
+            "reward": "Capped (Defined Reward)"
+        },
+        {
+            "name": "Speculative Bearish Collar",
+            "proficiency": "Intermediate",
+            "direction": "Bearish Breakdown",
+            "volatility": "Normal to High",
+            "legs": ["Buy OTM Put", "Sell OTM Call"],
+            "description": "Options-only zero-theta breakdown play buying support put funded by selling resistance call without stock ownership.",
+            "risk": "Undefined Upside Risk (Stop-loss mandatory at short call)",
+            "reward": "Capped Downside Profit"
+        },
+        {
+            "name": "Bullish Reverse-Collar",
+            "proficiency": "Intermediate / Advanced",
+            "direction": "Bullish Breakout",
+            "volatility": "Exploits Equity Skew",
+            "legs": ["Buy OTM Call", "Sell OTM Put"],
+            "description": "Breakout structure selling rich high-IV OTM put at support to fund an upside breakout call at resistance, often for a net credit.",
+            "risk": "Substantial Downside Risk (Below short put)",
+            "reward": "Uncapped Upside Profit"
+        },
+        {
+            "name": "Reverse-Collar Hedge",
+            "proficiency": "Advanced",
+            "direction": "Bearish Short Stock Protection",
+            "volatility": "High Volatility",
+            "legs": ["Short Stock", "Buy OTM Call", "Sell OTM Put"],
+            "description": "Protects short equity positions against upside squeezes using a long call financed by a short put (Synthesizes a Bear Put Spread).",
+            "risk": "Capped (Defined Risk)",
+            "reward": "Capped (Defined Reward)"
         }
     ]
 
@@ -517,9 +549,39 @@ def run_backtest_api():
 @app.get("/api/backtest/tearsheet")
 def get_backtest_tearsheet_api(report: Optional[str] = None, asset: Optional[str] = None, strategy: Optional[str] = None):
     html = backtest_service.get_tearsheet_html(report_name=report, asset=asset, strategy=strategy)
-    if not html:
-        raise HTTPException(status_code=404, detail="Tearsheet report not found.")
-    return HTMLResponse(content=html, status_code=200)
+# ---------------------------------------------------------------------------
+# Option Chain Analyzer Endpoints (Sameer Dharaskar Methodology)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/analyzer/data")
+def get_analyzer_data_api(
+    symbol: str = "NIFTY",
+    expiry: Optional[str] = None,
+    strike: Optional[float] = None,
+    mode: Optional[str] = None
+):
+    return analyzer_service.get_analyzer_data(symbol=symbol, expiry=expiry, strike=strike, mode=mode)
+
+
+@app.get("/api/analyzer/export-history")
+def export_analyzer_history_api(
+    symbol: str = "NIFTY",
+    expiry: Optional[str] = None,
+    strike: Optional[float] = None
+):
+    content = analyzer_service.export_history_csv(symbol=symbol, expiry=expiry, strike=strike)
+    headers = {"Content-Disposition": f"attachment; filename={symbol.upper()}_analyzer_history.csv"}
+    return Response(content=content, media_type="text/csv", headers=headers)
+
+
+@app.get("/api/analyzer/dump-chain")
+def dump_analyzer_chain_api(
+    symbol: str = "NIFTY",
+    expiry: Optional[str] = None
+):
+    content = analyzer_service.dump_full_chain_csv(symbol=symbol, expiry=expiry)
+    headers = {"Content-Disposition": f"attachment; filename={symbol.upper()}_option_chain_dump.csv"}
+    return Response(content=content, media_type="text/csv", headers=headers)
 
 
 if __name__ == "__main__":

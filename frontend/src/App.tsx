@@ -28,7 +28,10 @@ import {
   BarChart2,
   PieChart,
   Layers,
-  Activity
+  Activity,
+  Calendar,
+  Crosshair,
+  Clock
 } from 'lucide-react';
 
 interface OptionLeg {
@@ -71,22 +74,37 @@ interface StrategistRecommendation {
   max_profit: string;
   breakeven: string;
   risk_reward: string;
-  risk_type: 'DEFINED RISK' | 'UNDEFINED RISK';
+  risk_type: string;
   fit_reason: string;
   rank: number;
+  saliba_framework?: string;
+  adjustment_playbook?: Record<string, string>;
 }
 
 interface RegimeData {
   trend: string;
   bias: string;
   volatility: string;
-  confidence: number;
+  confidence?: number;
 }
 
 interface StrategistResponse {
   regime: RegimeData;
   buying_strategies: StrategistRecommendation[];
   selling_strategies: StrategistRecommendation[];
+  all_buying_strategies?: StrategistRecommendation[];
+  all_selling_strategies?: StrategistRecommendation[];
+  box_arbitrage?: {
+    box_fair_value: number;
+    recommended_vehicle: string;
+    edge_explanation: string;
+  };
+  saliba_insights?: {
+    saliba_rules_active: boolean;
+    book_source: string;
+    active_chapters: string[];
+    key_takeaway: string;
+  };
   warnings: string[];
   symbol: string;
 }
@@ -95,6 +113,7 @@ interface PayoffPoint {
   spot: number;
   expiration_pnl: number;
   today_pnl: number;
+  target_date_pnl?: number;
 }
 
 interface PortfolioGreeks {
@@ -109,6 +128,80 @@ interface PortfolioGreeks {
 interface PayoffResponse {
   payoff_curve: PayoffPoint[];
   greeks: PortfolioGreeks;
+}
+
+// Black-Scholes and Gaussian Distribution Helpers for Smooth Real-Time Payoff Simulation
+function normCdf(x: number): number {
+  const a1 = 0.254829592;
+  const a2 = -0.284496736;
+  const a3 = 1.421413741;
+  const a4 = -1.453152027;
+  const a5 = 1.061405429;
+  const p = 0.3275911;
+
+  const sign = x < 0 ? -1 : 1;
+  const absX = Math.abs(x) / Math.sqrt(2.0);
+
+  const t = 1.0 / (1.0 + p * absX);
+  const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-absX * absX);
+
+  return 0.5 * (1.0 + sign * y);
+}
+
+function normPdf(x: number): number {
+  return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
+}
+
+function calculateOptionGreeksJS(
+  s: number,
+  k: number,
+  t: number,
+  r: number,
+  v: number,
+  optionType: 'call' | 'put' | string
+) {
+  if (s <= 0 || k <= 0) return { price: 0, delta: 0, theta: 0, gamma: 0 };
+  r = Math.max(0, r);
+  v = Math.max(1e-4, v);
+  const isCall = optionType.toLowerCase() === 'call';
+
+  if (t <= 0.00001) {
+    const price = isCall ? Math.max(s - k, 0) : Math.max(k - s, 0);
+    const delta = isCall ? (s > k ? 1 : 0) : (s < k ? -1 : 0);
+    return { price, delta, theta: 0, gamma: 0 };
+  }
+
+  const sqrtT = Math.sqrt(t);
+  const d1 = (Math.log(s / k) + (r + 0.5 * v * v) * t) / (v * sqrtT);
+  const d2 = d1 - v * sqrtT;
+
+  const pdfD1 = normPdf(d1);
+  const cdfD1 = normCdf(d1);
+  const cdfD2 = normCdf(d2);
+
+  let price = 0;
+  let delta = 0;
+  let theta = 0;
+
+  if (isCall) {
+    price = s * cdfD1 - k * Math.exp(-r * t) * cdfD2;
+    delta = cdfD1;
+    theta = -(s * pdfD1 * v) / (2 * sqrtT) - r * k * Math.exp(-r * t) * cdfD2;
+  } else {
+    price = k * Math.exp(-r * t) * normCdf(-d2) - s * normCdf(-d1);
+    delta = cdfD1 - 1.0;
+    theta = -(s * pdfD1 * v) / (2 * sqrtT) + r * k * Math.exp(-r * t) * normCdf(-d2);
+  }
+
+  const gamma = pdfD1 / (s * v * sqrtT);
+  const thetaDaily = theta / 365.0;
+
+  return {
+    price: Math.max(0, price),
+    delta,
+    theta: thetaDaily,
+    gamma
+  };
 }
 
 interface NdayResult {
@@ -486,13 +579,89 @@ export default function App() {
   const [volatility, setVolatility] = useState<number>(0.15);
   const [daysToExpiry, setDaysToExpiry] = useState<number>(15);
   
+  // Payoff Chart Interactive Simulation States: Date Slider & Price Movement Slider
+  const [targetDaysElapsed, setTargetDaysElapsed] = useState<number>(0);
+  const [priceChangePct, setPriceChangePct] = useState<number>(0);
+
   // SVG Chart hovering tooltip
   const [hoveredPoint, setHoveredPoint] = useState<PayoffPoint | null>(null);
   const [hoverX, setHoverX] = useState<number>(0);
   const [hoverY, setHoverY] = useState<number>(0);
 
   // Navigation
-  const [activeTab, setActiveTab] = useState<'workbench' | 'scanner' | 'breakout' | 'oi_spurts' | 'change_in_oi' | 'futures_buildup' | 'oi_graph' | 'high_momentum' | 'elder_impulse' | 'straddle_chart' | 'oi_crossover_scanner' | 'vcp' | 'backtest_lab'>('workbench');
+  const [activeTab, setActiveTab] = useState<'workbench' | 'scanner' | 'breakout' | 'oi_spurts' | 'change_in_oi' | 'futures_buildup' | 'oi_graph' | 'high_momentum' | 'elder_impulse' | 'straddle_chart' | 'oi_crossover_scanner' | 'vcp' | 'backtest_lab' | 'analyzer'>('workbench');
+
+  // Option Chain Near-ATM Open Interest Tab States
+  const [chainTab, setChainTab] = useState<'both' | 'near_atm' | 'full_chain'>('both');
+  const [nearAtmStrikeRange, setNearAtmStrikeRange] = useState<number>(3);
+  const [nearAtmViewMode, setNearAtmViewMode] = useState<'cards_and_table' | 'cards_only'>('cards_and_table');
+
+  // Option Chain Analyzer (Sameer Dharaskar Methodology) States
+  const [analyzerMode, setAnalyzerMode] = useState<'Index' | 'Stock'>('Index');
+  const [analyzerSymbol, setAnalyzerSymbol] = useState<string>('NIFTY');
+  const [analyzerExpiry, setAnalyzerExpiry] = useState<string>('');
+  const [analyzerStrike, setAnalyzerStrike] = useState<number | null>(null);
+  const [analyzerInterval, setAnalyzerInterval] = useState<number>(60);
+  const [analyzerIsPolling, setAnalyzerIsPolling] = useState<boolean>(false);
+  const [analyzerData, setAnalyzerData] = useState<any | null>(null);
+  const [analyzerLoading, setAnalyzerLoading] = useState<boolean>(false);
+  const [analyzerError, setAnalyzerError] = useState<string | null>(null);
+  const [analyzerShowFullChainModal, setAnalyzerShowFullChainModal] = useState<boolean>(false);
+  const [showAboutModal, setShowAboutModal] = useState<boolean>(false);
+
+  const fetchAnalyzerData = async (
+    sym = analyzerSymbol,
+    exp = analyzerExpiry,
+    stk = analyzerStrike,
+    mode = analyzerMode
+  ) => {
+    setAnalyzerLoading(true);
+    setAnalyzerError(null);
+    try {
+      let url = `/api/analyzer/data?symbol=${sym}&mode=${mode}`;
+      if (exp) url += `&expiry=${exp}`;
+      if (stk) url += `&strike=${stk}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`Failed to fetch analyzer data: HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      setAnalyzerData(data);
+      const availableExpiries = data.expiries || data.expiry_dates || [];
+      if (availableExpiries.length > 0) {
+        if (!exp || !availableExpiries.includes(exp)) {
+          setAnalyzerExpiry(data.selected_expiry || availableExpiries[0]);
+        }
+      }
+      if (stk === null) {
+        const resolvedStrike = data.strike ?? data.target_strike ?? data.summary?.atm_strike;
+        if (resolvedStrike !== undefined && resolvedStrike !== null) {
+          setAnalyzerStrike(resolvedStrike);
+        }
+      }
+    } catch (err: any) {
+      console.error('Analyzer fetch error:', err);
+      setAnalyzerError(err.message || 'Error loading Option Chain Analyzer data.');
+    } finally {
+      setAnalyzerLoading(false);
+    }
+  };
+
+  const exportAnalyzerHistory = () => {
+    let url = `/api/analyzer/export-history?symbol=${analyzerSymbol}`;
+    if (analyzerExpiry) url += `&expiry=${analyzerExpiry}`;
+    if (analyzerStrike) url += `&strike=${analyzerStrike}`;
+    window.open(url, '_blank');
+  };
+
+  const dumpAnalyzerChain = () => {
+    let url = `/api/analyzer/dump-chain?symbol=${analyzerSymbol}`;
+    if (analyzerExpiry) url += `&expiry=${analyzerExpiry}`;
+    window.open(url, '_blank');
+  };
 
   // Backtest Lab States
   const [backtestSummary, setBacktestSummary] = useState<{ strategies: any[]; portfolio: any; updated_at: string | null } | null>(null);
@@ -1507,8 +1676,45 @@ export default function App() {
     }
   }, [activeTab]);
 
+  useEffect(() => {
+    if (activeTab === 'analyzer') {
+      fetchAnalyzerData(analyzerSymbol, analyzerExpiry, analyzerStrike, analyzerMode);
+    }
+  }, [activeTab, analyzerSymbol, analyzerExpiry, analyzerStrike, analyzerMode]);
 
+  useEffect(() => {
+    let intervalId: any = null;
+    if (activeTab === 'analyzer' && analyzerIsPolling) {
+      intervalId = setInterval(() => {
+        fetchAnalyzerData(analyzerSymbol, analyzerExpiry, analyzerStrike, analyzerMode);
+      }, analyzerInterval * 1000);
+    }
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [activeTab, analyzerIsPolling, analyzerInterval, analyzerSymbol, analyzerExpiry, analyzerStrike, analyzerMode]);
 
+  // Auto-scroll Strategy Workbench Option Chain to ATM strike row
+  useEffect(() => {
+    if (optionChain && activeTab === 'workbench') {
+      const timer = setTimeout(() => {
+        const el = document.getElementById('workbench-atm-row');
+        if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [optionChain?.selected_expiry, optionChain?.symbol, activeTab]);
+
+  // Auto-scroll Full Chain Matrix modal to ATM strike row
+  useEffect(() => {
+    if (analyzerShowFullChainModal) {
+      const timer = setTimeout(() => {
+        const el = document.getElementById('analyzer-matrix-atm-row');
+        if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }, 200);
+      return () => clearTimeout(timer);
+    }
+  }, [analyzerShowFullChainModal, analyzerData?.summary?.atm_strike, analyzerData?.strike]);
 
   // Fetch Live NSE Option Chain
   const fetchOptionChain = async (sym: string, exp: string = '') => {
@@ -1573,8 +1779,10 @@ export default function App() {
     const maxStrike = Math.max(...strikes);
     const center = optionChain?.underlying_price || minStrike;
     
-    const spotMin = Math.min(minStrike * 0.92, center * 0.92);
-    const spotMax = Math.max(maxStrike * 1.08, center * 1.08);
+    const spotMin = Math.min(minStrike * 0.84, center * 0.84);
+    const spotMax = Math.max(maxStrike * 1.16, center * 1.16);
+    const remainingDays = Math.max(0, daysToExpiry - targetDaysElapsed);
+    const targetT = remainingDays / 365.0;
     
     try {
       const res = await fetch('/api/payoff', {
@@ -1589,11 +1797,12 @@ export default function App() {
             quantity: l.quantity * getLotSize(symbol)   // convert lots → contracts for backend
           })),
           t: daysToExpiry / 365.0,
+          target_t: targetT,
           r: interestRate,
           v: volatility,
           spot_min: spotMin,
           spot_max: spotMax,
-          spot_step: (spotMax - spotMin) / 80.0
+          spot_step: (spotMax - spotMin) / 100.0
         })
       });
       if (!res.ok) throw new Error('Calculation error');
@@ -1604,6 +1813,19 @@ export default function App() {
       console.error("Payoff calculation error:", err);
     }
   };
+
+  // Reset simulation controls when symbol changes
+  useEffect(() => {
+    setPriceChangePct(0);
+    setTargetDaysElapsed(0);
+  }, [symbol]);
+
+  // Keep targetDaysElapsed within daysToExpiry bounds
+  useEffect(() => {
+    if (targetDaysElapsed > daysToExpiry) {
+      setTargetDaysElapsed(daysToExpiry);
+    }
+  }, [daysToExpiry]);
 
   // Initial mount load
   useEffect(() => {
@@ -1647,6 +1869,7 @@ export default function App() {
   const loadStrategySetup = (strategy: StrategistRecommendation) => {
     const n = strategy.name.toLowerCase();
     const atm = optionChain?.atm_strike || 24250;
+    const spot = optionChain?.underlying_price || atm;
     const step = optionChain?.strikes.length
       ? Math.abs((optionChain.strikes[1]?.strike || atm + 50) - optionChain.strikes[0].strike)
       : 50;
@@ -1669,194 +1892,310 @@ export default function App() {
 
     let newLegs: OptionLeg[] = [];
 
-    // ─── BUYING STRATEGIES ────────────────────────────────────────────────────
-    if (n.includes('long call') || (n.includes('buy call') && !n.includes('spread'))) {
-      newLegs = [
-        { id: id(), type: 'call', action: 'buy', strike: atm, premium: ceAsk(atm), quantity: 1 }
-      ];
-    }
-    else if (n.includes('long put') || (n.includes('buy put') && !n.includes('spread'))) {
-      newLegs = [
-        { id: id(), type: 'put', action: 'buy', strike: atm, premium: peAsk(atm), quantity: 1 }
-      ];
-    }
-    else if (n.includes('long straddle') || (n.includes('straddle') && n.includes('long'))) {
-      newLegs = [
-        { id: id(), type: 'call', action: 'buy', strike: atm, premium: ceAsk(atm), quantity: 1 },
-        { id: id(), type: 'put',  action: 'buy', strike: atm, premium: peAsk(atm), quantity: 1 }
-      ];
-    }
-    else if (n.includes('long strangle') || (n.includes('strangle') && n.includes('long'))) {
-      const cK = atm + step;
-      const pK = atm - step;
-      newLegs = [
-        { id: id(), type: 'call', action: 'buy', strike: cK, premium: ceAsk(cK), quantity: 1 },
-        { id: id(), type: 'put',  action: 'buy', strike: pK, premium: peAsk(pK), quantity: 1 }
-      ];
-    }
-    else if (n.includes('bull call') || (n.includes('debit spread') && (n.includes('call') || n.includes('bull')))) {
-      const buyK  = atm;
-      const sellK = atm + 2 * step;
-      newLegs = [
-        { id: id(), type: 'call', action: 'buy',  strike: buyK,  premium: ceAsk(buyK),  quantity: 1 },
-        { id: id(), type: 'call', action: 'sell', strike: sellK, premium: ceBid(sellK), quantity: 1 }
-      ];
-    }
-    else if (n.includes('bear put') || (n.includes('debit spread') && (n.includes('put') || n.includes('bear')))) {
-      const buyK  = atm;
-      const sellK = atm - 2 * step;
-      newLegs = [
-        { id: id(), type: 'put', action: 'buy',  strike: buyK,  premium: peAsk(buyK),  quantity: 1 },
-        { id: id(), type: 'put', action: 'sell', strike: sellK, premium: peBid(sellK), quantity: 1 }
-      ];
-    }
-    else if (n.includes('call ratio backspread') || (n.includes('ratio backspread') && n.includes('call'))) {
-      const sellK = atm;
-      const buyK  = atm + step;
-      newLegs = [
-        { id: id(), type: 'call', action: 'sell', strike: sellK, premium: ceBid(sellK), quantity: 1 },
-        { id: id(), type: 'call', action: 'buy',  strike: buyK,  premium: ceAsk(buyK),  quantity: 2 }
-      ];
-    }
-    else if (n.includes('put ratio backspread') || (n.includes('ratio backspread') && n.includes('put'))) {
-      const sellK = atm;
-      const buyK  = atm - step;
-      newLegs = [
-        { id: id(), type: 'put', action: 'sell', strike: sellK, premium: peBid(sellK), quantity: 1 },
-        { id: id(), type: 'put', action: 'buy',  strike: buyK,  premium: peAsk(buyK),  quantity: 2 }
-      ];
-    }
-    else if (n.includes('ratio backspread')) {
-      // generic fallback — assume call
-      const sellK = atm;
-      const buyK  = atm + step;
-      newLegs = [
-        { id: id(), type: 'call', action: 'sell', strike: sellK, premium: ceBid(sellK), quantity: 1 },
-        { id: id(), type: 'call', action: 'buy',  strike: buyK,  premium: ceAsk(buyK),  quantity: 2 }
-      ];
-    }
-    else if (n.includes('long zebra') || (n.includes('zebra') && !n.includes('short'))) {
-      const buyK = atm - (2 * step); // ITM Call
-      const sellK = atm; // ATM Call
-      newLegs = [
-        { id: id(), type: 'call', action: 'buy',  strike: buyK,  premium: ceAsk(buyK),  quantity: 2 },
-        { id: id(), type: 'call', action: 'sell', strike: sellK, premium: ceBid(sellK), quantity: 1 }
-      ];
-    }
-    else if (n.includes('short zebra')) {
-      const buyK = atm + (2 * step); // ITM Put
-      const sellK = atm; // ATM Put
-      newLegs = [
-        { id: id(), type: 'put', action: 'buy',  strike: buyK,  premium: peAsk(buyK),  quantity: 2 },
-        { id: id(), type: 'put', action: 'sell', strike: sellK, premium: peBid(sellK), quantity: 1 }
-      ];
-    }
-    else if (n.includes('long synthetic future') || (n.includes('synthetic future') && !n.includes('short'))) {
-      newLegs = [
-        { id: id(), type: 'call', action: 'buy',  strike: atm, premium: ceAsk(atm), quantity: 1 },
-        { id: id(), type: 'put',  action: 'sell', strike: atm, premium: peBid(atm), quantity: 1 }
-      ];
-    }
-    else if (n.includes('short synthetic future')) {
-      newLegs = [
-        { id: id(), type: 'put',  action: 'buy',  strike: atm, premium: peAsk(atm), quantity: 1 },
-        { id: id(), type: 'call', action: 'sell', strike: atm, premium: ceBid(atm), quantity: 1 }
-      ];
-    }
-    else if (n.includes('calendar spread') || n.includes('time spread')) {
-      // Can only show current expiry; use far OTM as placeholder for far leg
-      newLegs = [
-        { id: id(), type: 'call', action: 'sell', strike: atm, premium: ceBid(atm), quantity: 1 },
-        { id: id(), type: 'call', action: 'buy',  strike: atm, premium: ceAsk(atm) * 1.4, quantity: 1 }
-      ];
+    // 1. Direct Parsing from Strategist Strikes (Anthony Saliba Ch 01 - Ch 08)
+    if (strategy.strikes) {
+      const strikeRegex = /(buy|sell)\s+(\d+)x\s+([\d.]+)\s*(call|put|ce|pe|spot|stock)(?:\s*@\s*Rs\.?([\d.]+))?/gi;
+      const matches = [...strategy.strikes.matchAll(strikeRegex)];
+      if (matches.length > 0) {
+        newLegs = matches.map(m => {
+          const action = m[1].toLowerCase() as 'buy' | 'sell';
+          const qty = parseInt(m[2], 10) || 1;
+          const strike = parseFloat(m[3]);
+          const rawKind = m[4].toLowerCase();
+          const isStock = rawKind.startsWith('s');
+          const isCall = rawKind.startsWith('c');
+          const type: 'call' | 'put' | 'stock' = isStock ? 'stock' : (isCall ? 'call' : 'put');
+          const fallbackPrem = m[5] ? parseFloat(m[5]) : 0;
+          
+          let livePrem = fallbackPrem;
+          if (isStock) {
+            livePrem = spot;
+          } else if (isCall) {
+            livePrem = (action === 'buy' ? ceAsk(strike) : ceBid(strike)) || fallbackPrem || 10;
+          } else {
+            livePrem = (action === 'buy' ? peAsk(strike) : peBid(strike)) || fallbackPrem || 10;
+          }
+
+          return {
+            id: id(),
+            type,
+            action,
+            strike: isStock ? spot : strike,
+            premium: livePrem,
+            quantity: qty,
+          };
+        });
+      }
     }
 
-    // ─── SELLING / CREDIT STRATEGIES ─────────────────────────────────────────
-    else if (n.includes('short straddle') || (n.includes('straddle') && (n.includes('short') || n.includes('sell')))) {
-      newLegs = [
-        { id: id(), type: 'call', action: 'sell', strike: atm, premium: ceBid(atm), quantity: 1 },
-        { id: id(), type: 'put',  action: 'sell', strike: atm, premium: peBid(atm), quantity: 1 }
-      ];
-    }
-    else if (n.includes('short strangle') || (n.includes('strangle') && (n.includes('short') || n.includes('sell')))) {
-      const cK = atm + step;
-      const pK = atm - step;
-      newLegs = [
-        { id: id(), type: 'call', action: 'sell', strike: cK, premium: ceBid(cK), quantity: 1 },
-        { id: id(), type: 'put',  action: 'sell', strike: pK, premium: peBid(pK), quantity: 1 }
-      ];
-    }
-    else if (n.includes('iron fly') || n.includes('iron butterfly')) {
-      newLegs = [
-        { id: id(), type: 'put',  action: 'buy',  strike: atm - 2 * step, premium: peAsk(atm - 2 * step), quantity: 1 },
-        { id: id(), type: 'put',  action: 'sell', strike: atm,             premium: peBid(atm),             quantity: 1 },
-        { id: id(), type: 'call', action: 'sell', strike: atm,             premium: ceBid(atm),             quantity: 1 },
-        { id: id(), type: 'call', action: 'buy',  strike: atm + 2 * step, premium: ceAsk(atm + 2 * step), quantity: 1 }
-      ];
-    }
-    else if (n.includes('iron condor')) {
-      const peSell = atm - 2 * step;
-      const peBuy  = atm - 4 * step;
-      const ceSell = atm + 2 * step;
-      const ceBuyK = atm + 4 * step;
-      newLegs = [
-        { id: id(), type: 'put',  action: 'buy',  strike: peBuy,  premium: peAsk(peBuy),  quantity: 1 },
-        { id: id(), type: 'put',  action: 'sell', strike: peSell, premium: peBid(peSell), quantity: 1 },
-        { id: id(), type: 'call', action: 'sell', strike: ceSell, premium: ceBid(ceSell), quantity: 1 },
-        { id: id(), type: 'call', action: 'buy',  strike: ceBuyK, premium: ceAsk(ceBuyK), quantity: 1 }
-      ];
-    }
-    else if (n.includes('bull put') || (n.includes('credit spread') && (n.includes('put') || n.includes('bull')))) {
-      const sellK = atm;
-      const buyK  = atm - 2 * step;
-      newLegs = [
-        { id: id(), type: 'put', action: 'sell', strike: sellK, premium: peBid(sellK), quantity: 1 },
-        { id: id(), type: 'put', action: 'buy',  strike: buyK,  premium: peAsk(buyK),  quantity: 1 }
-      ];
-    }
-    else if (n.includes('bear call') || (n.includes('credit spread') && (n.includes('call') || n.includes('bear')))) {
-      const sellK = atm;
-      const buyK  = atm + 2 * step;
-      newLegs = [
-        { id: id(), type: 'call', action: 'sell', strike: sellK, premium: ceBid(sellK), quantity: 1 },
-        { id: id(), type: 'call', action: 'buy',  strike: buyK,  premium: ceAsk(buyK),  quantity: 1 }
-      ];
-    }
-    else if (n.includes('covered call') || n.includes('buy-write')) {
-      const spot = optionChain?.underlying_price || atm;
-      newLegs = [
-        { id: id(), type: 'stock', action: 'buy',  strike: spot, premium: spot, quantity: 1 },
-        { id: id(), type: 'call',  action: 'sell', strike: atm + step, premium: ceBid(atm + step), quantity: 1 }
-      ];
-    }
-    else if (n.includes('protective put') || n.includes('married put')) {
-      const spot = optionChain?.underlying_price || atm;
-      newLegs = [
-        { id: id(), type: 'stock', action: 'buy', strike: spot, premium: spot, quantity: 1 },
-        { id: id(), type: 'put',   action: 'buy', strike: atm - step, premium: peAsk(atm - step), quantity: 1 }
-      ];
-    }
-    else if (n.includes('short call') || n.includes('naked call')) {
-      newLegs = [
-        { id: id(), type: 'call', action: 'sell', strike: atm + step, premium: ceBid(atm + step), quantity: 1 }
-      ];
-    }
-    else if (n.includes('short put') || n.includes('naked put') || n.includes('cash-secured put')) {
-      newLegs = [
-        { id: id(), type: 'put', action: 'sell', strike: atm - step, premium: peBid(atm - step), quantity: 1 }
-      ];
-    }
-    else {
-      // ── Fallback: use strategy.type to load a sensible default ──
-      if (strategy.type === 'buying') {
+    // 2. Named Setup Fallbacks (Chapters 01 to 08)
+    if (newLegs.length === 0) {
+      // ─── CHAPTER 1: THE COVERED-WRITE / BUY-WRITE ───────────────────────────
+      if (n.includes('covered') || n.includes('buy-write')) {
+        const callK = closest(optionChain?.max_call_oi_strike || (atm + 2 * step))?.strike || (atm + 2 * step);
+        newLegs = [
+          { id: id(), type: 'stock', action: 'buy',  strike: spot,  premium: spot,          quantity: 1 },
+          { id: id(), type: 'call',  action: 'sell', strike: callK, premium: ceBid(callK),  quantity: 1 }
+        ];
+      }
+
+      // ─── CHAPTER 3: COLLARS AND REVERSE-COLLARS ──────────────────────────────
+      else if (n.includes('reverse') && (n.includes('hedge') || n.includes('short'))) {
+        // Reverse-Collar Hedge (Short Stock Protection / Synthetic Bear Put Spread)
+        const callK = closest(atm + step)?.strike || (atm + step);
+        const putK  = closest(atm - 2 * step)?.strike || (atm - 2 * step);
+        newLegs = [
+          { id: id(), type: 'stock', action: 'sell', strike: spot,  premium: spot,          quantity: 1 },
+          { id: id(), type: 'call',  action: 'buy',  strike: callK, premium: ceAsk(callK),  quantity: 1 },
+          { id: id(), type: 'put',   action: 'sell', strike: putK,  premium: peBid(putK),   quantity: 1 }
+        ];
+      }
+      else if (n.includes('reverse-collar') || n.includes('reverse collar') || (n.includes('reverse') && n.includes('collar'))) {
+        // Speculative Bullish Reverse-Collar (Exploits Equity IV Skew to fund breakout call)
+        const callK = closest(atm + step)?.strike || (atm + step);
+        const putK  = closest(atm - 2 * step)?.strike || (atm - 2 * step);
+        newLegs = [
+          { id: id(), type: 'call', action: 'buy',  strike: callK, premium: ceAsk(callK),  quantity: 1 },
+          { id: id(), type: 'put',  action: 'sell', strike: putK,  premium: peBid(putK),   quantity: 1 }
+        ];
+      }
+      else if (n.includes('speculative collar') || (n.includes('collar') && (n.includes('bear') || n.includes('breakdown')))) {
+        // Speculative Bearish Collar (Zero-Theta breakdown play)
+        const putK  = closest(atm - step)?.strike || (atm - step);
+        const callK = closest(atm + 2 * step)?.strike || (atm + 2 * step);
+        newLegs = [
+          { id: id(), type: 'put',  action: 'buy',  strike: putK,  premium: peAsk(putK),   quantity: 1 },
+          { id: id(), type: 'call', action: 'sell', strike: callK, premium: ceBid(callK),  quantity: 1 }
+        ];
+      }
+      else if (n.includes('collar')) {
+        // Classic Equity Collar (Long Stock Hedge / Synthetic Bull Call Spread)
+        const putK = closest(atm - step)?.strike || (atm - step);
+        const callK = closest(optionChain?.max_call_oi_strike || (atm + 2 * step))?.strike || (atm + 2 * step);
+        newLegs = [
+          { id: id(), type: 'stock', action: 'buy',  strike: spot,  premium: spot,          quantity: 1 },
+          { id: id(), type: 'put',   action: 'buy',  strike: putK,  premium: peAsk(putK),   quantity: 1 },
+          { id: id(), type: 'call',  action: 'sell', strike: callK, premium: ceBid(callK),  quantity: 1 }
+        ];
+      }
+
+      // ─── CHAPTER 5: BUTTERFLIES & CONDORS ────────────────────────────────────
+      else if (n.includes('iron fly') || n.includes('iron butterfly')) {
+        const midK = closest(optionChain?.max_pain || atm)?.strike || atm;
+        const peWing = closest(midK - 2 * step)?.strike || (midK - 2 * step);
+        const ceWing = closest(midK + 2 * step)?.strike || (midK + 2 * step);
+        newLegs = [
+          { id: id(), type: 'put',  action: 'buy',  strike: peWing, premium: peAsk(peWing), quantity: 1 },
+          { id: id(), type: 'put',  action: 'sell', strike: midK,   premium: peBid(midK),   quantity: 1 },
+          { id: id(), type: 'call', action: 'sell', strike: midK,   premium: ceBid(midK),   quantity: 1 },
+          { id: id(), type: 'call', action: 'buy',  strike: ceWing, premium: ceAsk(ceWing), quantity: 1 }
+        ];
+      }
+      else if (n.includes('butterfly') || n.includes('fly')) {
+        const midK   = closest(optionChain?.max_pain || atm)?.strike || atm;
+        const lowerK = closest(midK - step)?.strike || (midK - step);
+        const upperK = closest(midK + step)?.strike || (midK + step);
+        newLegs = [
+          { id: id(), type: 'call', action: 'buy',  strike: lowerK, premium: ceAsk(lowerK), quantity: 1 },
+          { id: id(), type: 'call', action: 'sell', strike: midK,   premium: ceBid(midK),   quantity: 2 },
+          { id: id(), type: 'call', action: 'buy',  strike: upperK, premium: ceAsk(upperK), quantity: 1 }
+        ];
+      }
+      else if (n.includes('iron condor')) {
+        const peSell = closest(optionChain?.max_put_oi_strike || (atm - 2 * step))?.strike || (atm - 2 * step);
+        const peBuy  = closest(peSell - step)?.strike || (peSell - step);
+        const ceSell = closest(optionChain?.max_call_oi_strike || (atm + 2 * step))?.strike || (atm + 2 * step);
+        const ceBuyK = closest(ceSell + step)?.strike || (ceSell + step);
+        newLegs = [
+          { id: id(), type: 'put',  action: 'buy',  strike: peBuy,  premium: peAsk(peBuy),  quantity: 1 },
+          { id: id(), type: 'put',  action: 'sell', strike: peSell, premium: peBid(peSell), quantity: 1 },
+          { id: id(), type: 'call', action: 'sell', strike: ceSell, premium: ceBid(ceSell), quantity: 1 },
+          { id: id(), type: 'call', action: 'buy',  strike: ceBuyK, premium: ceAsk(ceBuyK), quantity: 1 }
+        ];
+      }
+
+      // ─── CHAPTER 7 & 8: RATIO SPREADS & BACKSPREADS ─────────────────────────
+      else if (n.includes('call ratio backspread') || (n.includes('ratio backspread') && n.includes('call'))) {
+        const sellK = atm;
+        const buyK  = closest(atm + step)?.strike || (atm + step);
+        newLegs = [
+          { id: id(), type: 'call', action: 'sell', strike: sellK, premium: ceBid(sellK), quantity: 1 },
+          { id: id(), type: 'call', action: 'buy',  strike: buyK,  premium: ceAsk(buyK),  quantity: 2 }
+        ];
+      }
+      else if (n.includes('put ratio backspread') || (n.includes('ratio backspread') && n.includes('put'))) {
+        const sellK = atm;
+        const buyK  = closest(atm - step)?.strike || (atm - step);
+        newLegs = [
+          { id: id(), type: 'put', action: 'sell', strike: sellK, premium: peBid(sellK), quantity: 1 },
+          { id: id(), type: 'put', action: 'buy',  strike: buyK,  premium: peAsk(buyK),  quantity: 2 }
+        ];
+      }
+      else if (n.includes('ratio backspread')) {
+        const sellK = atm;
+        const buyK  = closest(atm + step)?.strike || (atm + step);
+        newLegs = [
+          { id: id(), type: 'call', action: 'sell', strike: sellK, premium: ceBid(sellK), quantity: 1 },
+          { id: id(), type: 'call', action: 'buy',  strike: buyK,  premium: ceAsk(buyK),  quantity: 2 }
+        ];
+      }
+      else if (n.includes('ratio spread') || (n.includes('ratio') && !n.includes('zebra'))) {
+        const isCall = n.includes('call') || (!n.includes('put') && n.includes('1:2'));
+        if (isCall) {
+          const buyK = atm;
+          const rawSellK = optionChain?.max_call_oi_strike || (atm + 2 * step);
+          const sellK = closest(rawSellK <= buyK ? buyK + 2 * step : rawSellK)?.strike || (buyK + 2 * step);
+          newLegs = [
+            { id: id(), type: 'call', action: 'buy',  strike: buyK,  premium: ceAsk(buyK),  quantity: 1 },
+            { id: id(), type: 'call', action: 'sell', strike: sellK, premium: ceBid(sellK), quantity: 2 }
+          ];
+        } else {
+          const buyK = atm;
+          const rawSellK = optionChain?.max_put_oi_strike || (atm - 2 * step);
+          const sellK = closest(rawSellK >= buyK ? buyK - 2 * step : rawSellK)?.strike || (buyK - 2 * step);
+          newLegs = [
+            { id: id(), type: 'put',  action: 'buy',  strike: buyK,  premium: peAsk(buyK),  quantity: 1 },
+            { id: id(), type: 'put',  action: 'sell', strike: sellK, premium: peBid(sellK), quantity: 2 }
+          ];
+        }
+      }
+
+      // ─── CHAPTER 4: STRADDLES AND STRANGLES ─────────────────────────────────
+      else if (n.includes('max-pain') || n.includes('max pain')) {
+        const strike = closest(optionChain?.max_pain || atm)?.strike || atm;
+        newLegs = [
+          { id: id(), type: 'call', action: 'sell', strike, premium: ceBid(strike), quantity: 1 },
+          { id: id(), type: 'put',  action: 'sell', strike, premium: peBid(strike), quantity: 1 }
+        ];
+      }
+      else if (n.includes('short straddle')) {
+        newLegs = [
+          { id: id(), type: 'call', action: 'sell', strike: atm, premium: ceBid(atm), quantity: 1 },
+          { id: id(), type: 'put',  action: 'sell', strike: atm, premium: peBid(atm), quantity: 1 }
+        ];
+      }
+      else if (n.includes('long straddle') || (n.includes('straddle') && n.includes('long'))) {
+        newLegs = [
+          { id: id(), type: 'call', action: 'buy', strike: atm, premium: ceAsk(atm), quantity: 1 },
+          { id: id(), type: 'put',  action: 'buy', strike: atm, premium: peAsk(atm), quantity: 1 }
+        ];
+      }
+      else if (n.includes('short strangle')) {
+        const cK = closest(optionChain?.max_call_oi_strike || (atm + 2 * step))?.strike || (atm + 2 * step);
+        const pK = closest(optionChain?.max_put_oi_strike || (atm - 2 * step))?.strike || (atm - 2 * step);
+        newLegs = [
+          { id: id(), type: 'call', action: 'sell', strike: cK, premium: ceBid(cK), quantity: 1 },
+          { id: id(), type: 'put',  action: 'sell', strike: pK, premium: peBid(pK), quantity: 1 }
+        ];
+      }
+      else if (n.includes('long strangle') || n.includes('strangle')) {
+        const cK = closest(atm + step)?.strike || (atm + step);
+        const pK = closest(atm - step)?.strike || (atm - step);
+        newLegs = [
+          { id: id(), type: 'call', action: 'buy', strike: cK, premium: ceAsk(cK), quantity: 1 },
+          { id: id(), type: 'put',  action: 'buy', strike: pK, premium: peAsk(pK), quantity: 1 }
+        ];
+      }
+
+      // ─── CHAPTER 6: CALENDAR SPREADS (TIME SPREADS) ──────────────────────────
+      else if (n.includes('calendar') || n.includes('time spread')) {
+        newLegs = [
+          { id: id(), type: 'call', action: 'sell', strike: atm, premium: ceBid(atm), quantity: 1 },
+          { id: id(), type: 'call', action: 'buy',  strike: atm, premium: ceAsk(atm) * 1.38, quantity: 1 }
+        ];
+      }
+
+      // ─── CHAPTER 2: VERTICALS (DEBIT & CREDIT SPREADS) ───────────────────────
+      else if (n.includes('bull call') || (n.includes('debit spread') && (n.includes('call') || n.includes('bull')))) {
+        const buyK  = atm;
+        const sellK = closest(optionChain?.max_call_oi_strike || (atm + 2 * step))?.strike || (atm + 2 * step);
+        newLegs = [
+          { id: id(), type: 'call', action: 'buy',  strike: buyK,  premium: ceAsk(buyK),  quantity: 1 },
+          { id: id(), type: 'call', action: 'sell', strike: sellK, premium: ceBid(sellK), quantity: 1 }
+        ];
+      }
+      else if (n.includes('bear put') || (n.includes('debit spread') && (n.includes('put') || n.includes('bear')))) {
+        const buyK  = atm;
+        const sellK = closest(optionChain?.max_put_oi_strike || (atm - 2 * step))?.strike || (atm - 2 * step);
+        newLegs = [
+          { id: id(), type: 'put', action: 'buy',  strike: buyK,  premium: peAsk(buyK),  quantity: 1 },
+          { id: id(), type: 'put', action: 'sell', strike: sellK, premium: peBid(sellK), quantity: 1 }
+        ];
+      }
+      else if (n.includes('bull put') || (n.includes('credit spread') && (n.includes('put') || n.includes('bull')))) {
+        const sellK = closest(optionChain?.max_put_oi_strike || (atm - step))?.strike || (atm - step);
+        const buyK  = closest(sellK - step)?.strike || (sellK - step);
+        newLegs = [
+          { id: id(), type: 'put', action: 'sell', strike: sellK, premium: peBid(sellK), quantity: 1 },
+          { id: id(), type: 'put', action: 'buy',  strike: buyK,  premium: peAsk(buyK),  quantity: 1 }
+        ];
+      }
+      else if (n.includes('bear call') || (n.includes('credit spread') && (n.includes('call') || n.includes('bear')))) {
+        const sellK = closest(optionChain?.max_call_oi_strike || (atm + step))?.strike || (atm + step);
+        const buyK  = closest(sellK + step)?.strike || (sellK + step);
+        newLegs = [
+          { id: id(), type: 'call', action: 'sell', strike: sellK, premium: ceBid(sellK), quantity: 1 },
+          { id: id(), type: 'call', action: 'buy',  strike: buyK,  premium: ceAsk(buyK),  quantity: 1 }
+        ];
+      }
+
+      // ─── OUTRIGHTS & OTHER SETUPS ────────────────────────────────────────────
+      else if (n.includes('long call') || (n.includes('buy call') && !n.includes('spread'))) {
         newLegs = [
           { id: id(), type: 'call', action: 'buy', strike: atm, premium: ceAsk(atm), quantity: 1 }
         ];
-      } else {
+      }
+      else if (n.includes('long put') || (n.includes('buy put') && !n.includes('spread'))) {
         newLegs = [
-          { id: id(), type: 'call', action: 'sell', strike: atm + step, premium: ceBid(atm + step), quantity: 1 },
-          { id: id(), type: 'put',  action: 'sell', strike: atm - step, premium: peBid(atm - step), quantity: 1 }
+          { id: id(), type: 'put', action: 'buy', strike: atm, premium: peAsk(atm), quantity: 1 }
         ];
+      }
+      else if (n.includes('long zebra')) {
+        const buyK = closest(atm - 2 * step)?.strike || (atm - 2 * step);
+        const sellK = atm;
+        newLegs = [
+          { id: id(), type: 'call', action: 'buy',  strike: buyK,  premium: ceAsk(buyK),  quantity: 2 },
+          { id: id(), type: 'call', action: 'sell', strike: sellK, premium: ceBid(sellK), quantity: 1 }
+        ];
+      }
+      else if (n.includes('short zebra')) {
+        const buyK = closest(atm + 2 * step)?.strike || (atm + 2 * step);
+        const sellK = atm;
+        newLegs = [
+          { id: id(), type: 'put', action: 'buy',  strike: buyK,  premium: peAsk(buyK),  quantity: 2 },
+          { id: id(), type: 'put', action: 'sell', strike: sellK, premium: peBid(sellK), quantity: 1 }
+        ];
+      }
+      else if (n.includes('protective put')) {
+        newLegs = [
+          { id: id(), type: 'stock', action: 'buy', strike: spot, premium: spot, quantity: 1 },
+          { id: id(), type: 'put',   action: 'buy', strike: closest(atm - step)?.strike || (atm - step), premium: peAsk(atm - step), quantity: 1 }
+        ];
+      }
+      else if (n.includes('short call') || n.includes('naked call')) {
+        const sellK = closest(atm + step)?.strike || (atm + step);
+        newLegs = [
+          { id: id(), type: 'call', action: 'sell', strike: sellK, premium: ceBid(sellK), quantity: 1 }
+        ];
+      }
+      else if (n.includes('short put') || n.includes('naked put')) {
+        const sellK = closest(atm - step)?.strike || (atm - step);
+        newLegs = [
+          { id: id(), type: 'put', action: 'sell', strike: sellK, premium: peBid(sellK), quantity: 1 }
+        ];
+      }
+      else {
+        // Fallback
+        if (strategy.type === 'buying') {
+          newLegs = [
+            { id: id(), type: 'call', action: 'buy', strike: atm, premium: ceAsk(atm), quantity: 1 }
+          ];
+        } else {
+          newLegs = [
+            { id: id(), type: 'call', action: 'sell', strike: closest(atm + step)?.strike || (atm + step), premium: ceBid(atm + step), quantity: 1 },
+            { id: id(), type: 'put',  action: 'sell', strike: closest(atm - step)?.strike || (atm - step), premium: peBid(atm - step), quantity: 1 }
+          ];
+        }
       }
     }
 
@@ -1869,16 +2208,134 @@ export default function App() {
   const chartHeight = 360;
   const padding = 50;
 
+  // Helper to compute exact portfolio payoff, Greeks, and PnL at any given spot price and time
+  const calculatePortfolioPayoffAtSpot = (spot: number, tRemainingYears: number) => {
+    let expPnl = 0;
+    let simulatedDatePnl = 0;
+    let todayPnl = 0;
+    let posDelta = 0;
+    let posTheta = 0;
+    let posGamma = 0;
+
+    const lotSz = getLotSize(symbol);
+    const tToday = Math.max(0.00001, daysToExpiry / 365.0);
+
+    legs.forEach(leg => {
+      const ltype = leg.type.toLowerCase();
+      const isBuy = leg.action.toLowerCase() === 'buy';
+      const mult = isBuy ? 1 : -1;
+      const qty = leg.quantity * lotSz;
+      const premium = leg.premium;
+      const strike = leg.strike;
+
+      if (ltype === 'stock') {
+        const pnl = (spot - premium) * qty * mult;
+        expPnl += pnl;
+        simulatedDatePnl += pnl;
+        todayPnl += pnl;
+        posDelta += 1.0 * qty * mult;
+      } else {
+        // Expiration payoff
+        const payoff = ltype === 'call' ? Math.max(spot - strike, 0) : Math.max(strike - spot, 0);
+        expPnl += (payoff - premium) * qty * mult;
+
+        // Simulated Target Date payoff
+        if (tRemainingYears <= 0.00001) {
+          simulatedDatePnl += (payoff - premium) * qty * mult;
+        } else {
+          const g = calculateOptionGreeksJS(spot, strike, tRemainingYears, interestRate, volatility, ltype);
+          simulatedDatePnl += (g.price - premium) * qty * mult;
+          posDelta += g.delta * qty * mult;
+          posTheta += g.theta * qty * mult;
+          posGamma += g.gamma * qty * mult;
+        }
+
+        // Today baseline payoff
+        const gToday = calculateOptionGreeksJS(spot, strike, tToday, interestRate, volatility, ltype);
+        todayPnl += (gToday.price - premium) * qty * mult;
+      }
+    });
+
+    return {
+      expPnl: Math.round(expPnl * 100) / 100,
+      simulatedDatePnl: Math.round(simulatedDatePnl * 100) / 100,
+      todayPnl: Math.round(todayPnl * 100) / 100,
+      delta: Math.round(posDelta * 100) / 100,
+      theta: Math.round(posTheta * 100) / 100,
+      gamma: Math.round(posGamma * 10000) / 10000
+    };
+  };
+
+  const remainingDays = Math.max(0, daysToExpiry - targetDaysElapsed);
+  const targetT = remainingDays / 365.0;
+
+  const underlyingSpot = optionChain?.underlying_price || 0;
+  const simulatedSpot = useMemo(() => {
+    if (!underlyingSpot) return 0;
+    return Math.round((underlyingSpot * (1 + priceChangePct / 100)) * 100) / 100;
+  }, [underlyingSpot, priceChangePct]);
+
+  const simulatedTargetDateInfo = useMemo(() => {
+    const today = new Date();
+    const targetDate = new Date(today.getTime() + targetDaysElapsed * 86400000);
+    const expiryDate = new Date(today.getTime() + daysToExpiry * 86400000);
+    
+    const formatDate = (d: Date) => d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    
+    return {
+      todayStr: formatDate(today),
+      targetDateStr: formatDate(targetDate),
+      expiryDateStr: formatDate(expiryDate),
+      remainingDays,
+      isToday: targetDaysElapsed === 0,
+      isExpiry: targetDaysElapsed >= daysToExpiry
+    };
+  }, [targetDaysElapsed, daysToExpiry, remainingDays]);
+
+  const simulatedSpotMetrics = useMemo(() => {
+    if (!simulatedSpot || legs.length === 0) return null;
+    return calculatePortfolioPayoffAtSpot(simulatedSpot, targetT);
+  }, [simulatedSpot, targetT, legs, symbol, interestRate, volatility, daysToExpiry]);
+
+  // Dynamically populated points with target_date_pnl
+  const dynamicPayoffCurve = useMemo(() => {
+    if (payoffCurve.length === 0) return [];
+    return payoffCurve.map(pt => {
+      let targetPnl = pt.today_pnl;
+      if (targetDaysElapsed === 0) {
+        targetPnl = pt.today_pnl;
+      } else if (targetDaysElapsed >= daysToExpiry) {
+        targetPnl = pt.expiration_pnl;
+      } else if (pt.target_date_pnl !== undefined) {
+        targetPnl = pt.target_date_pnl;
+      } else {
+        targetPnl = calculatePortfolioPayoffAtSpot(pt.spot, targetT).simulatedDatePnl;
+      }
+      return {
+        ...pt,
+        target_date_pnl: targetPnl
+      };
+    });
+  }, [payoffCurve, targetDaysElapsed, daysToExpiry, targetT, legs, symbol, interestRate, volatility]);
+
   const chartScale = useMemo(() => {
-    if (payoffCurve.length === 0) return null;
+    if (dynamicPayoffCurve.length === 0) return null;
     
-    const spots = payoffCurve.map(p => p.spot);
-    const expPnls = payoffCurve.map(p => p.expiration_pnl);
-    const todayPnls = payoffCurve.map(p => p.today_pnl);
-    const allPnls = [...expPnls, ...todayPnls];
+    const spots = dynamicPayoffCurve.map(p => p.spot);
+    const expPnls = dynamicPayoffCurve.map(p => p.expiration_pnl);
+    const todayPnls = dynamicPayoffCurve.map(p => p.today_pnl);
+    const targetPnls = dynamicPayoffCurve.map(p => p.target_date_pnl ?? p.today_pnl);
     
-    const minSpot = Math.min(...spots);
-    const maxSpot = Math.max(...spots);
+    const allSpots = [...spots];
+    if (simulatedSpot > 0) allSpots.push(simulatedSpot);
+
+    const allPnls = [...expPnls, ...todayPnls, ...targetPnls];
+    if (simulatedSpotMetrics) {
+      allPnls.push(simulatedSpotMetrics.simulatedDatePnl, simulatedSpotMetrics.expPnl);
+    }
+    
+    const minSpot = Math.min(...allSpots);
+    const maxSpot = Math.max(...allSpots);
     const minPnl = Math.min(...allPnls);
     const maxPnl = Math.max(...allPnls);
     
@@ -1887,19 +2344,19 @@ export default function App() {
     const yMax = Math.max(maxPnl * 1.15, 2000);
 
     return { minSpot, maxSpot, yMin, yMax };
-  }, [payoffCurve]);
+  }, [dynamicPayoffCurve, simulatedSpot, simulatedSpotMetrics]);
 
   const { maxProfit, maxLoss, lotSize, lotCount, maxProfitPerLot, maxLossPerLot } = useMemo(() => {
-    if (payoffCurve.length === 0 || legs.length === 0) {
+    if (dynamicPayoffCurve.length === 0 || legs.length === 0) {
       return { maxProfit: 0, maxLoss: 0, lotSize: 1, lotCount: 1, maxProfitPerLot: 0, maxLossPerLot: 0 };
     }
-    const expPnls = payoffCurve.map(p => p.expiration_pnl);
+    const expPnls = dynamicPayoffCurve.map(p => p.expiration_pnl);
     const minP = Math.min(...expPnls);
     const maxP = Math.max(...expPnls);
 
     // Boundary check for uncapped profits/losses
-    const firstPoint = payoffCurve[0];
-    const lastPoint  = payoffCurve[payoffCurve.length - 1];
+    const firstPoint = dynamicPayoffCurve[0];
+    const lastPoint  = dynamicPayoffCurve[dynamicPayoffCurve.length - 1];
 
     let isUncappedProfit = false;
     let isUncappedLoss   = false;
@@ -1910,11 +2367,6 @@ export default function App() {
     if (firstPoint.expiration_pnl < minP * 1.05 && legs.some(l => l.action === 'sell' && l.type === 'put')) isUncappedLoss = true;
 
     const currentLotSize = getLotSize(symbol);
-
-    // leg.quantity now stores NUMBER OF LOTS (e.g. 1, 2).
-    // Backend receives lots × lotSize contracts, so total payoff is already scaled.
-    // The dominant leg's lot count = numLots for the full position.
-    // Per-lot = total payoff / numLots  → gives P&L for exactly 1 lot.
     const numLots = Math.max(...legs.map(l => l.quantity), 1);
 
     const finalMaxProfit = isUncappedProfit ? Infinity : maxP;
@@ -1928,7 +2380,7 @@ export default function App() {
       maxProfitPerLot: finalMaxProfit === Infinity  ? Infinity  : finalMaxProfit / numLots,
       maxLossPerLot:   finalMaxLoss   === -Infinity ? -Infinity : finalMaxLoss   / numLots
     };
-  }, [payoffCurve, legs, symbol]);
+  }, [dynamicPayoffCurve, legs, symbol]);
 
   // Convert coordinate value to SVG pixel coordinate
   const getSvgX = (spot: number) => {
@@ -1942,35 +2394,53 @@ export default function App() {
   };
 
   // Compile path strings for SVG
-  const { expPath, todayPath, zeroY, spotLineX } = useMemo(() => {
-    if (payoffCurve.length === 0 || !chartScale) return { expPath: '', todayPath: '', zeroY: 0, spotLineX: 0 };
+  const { expPath, todayPath, targetDatePath, zeroY, spotLineX, simulatedSpotX, simulatedTargetY, simulatedExpY } = useMemo(() => {
+    if (dynamicPayoffCurve.length === 0 || !chartScale) {
+      return { expPath: '', todayPath: '', targetDatePath: '', zeroY: 0, spotLineX: 0, simulatedSpotX: 0, simulatedTargetY: 0, simulatedExpY: 0 };
+    }
     
     let expPoints = '';
     let todayPoints = '';
+    let targetPoints = '';
     
-    payoffCurve.forEach((pt, i) => {
+    dynamicPayoffCurve.forEach((pt, i) => {
       const x = getSvgX(pt.spot);
       const yExp = getSvgY(pt.expiration_pnl);
       const yToday = getSvgY(pt.today_pnl);
+      const yTarget = getSvgY(pt.target_date_pnl ?? pt.today_pnl);
       
       if (i === 0) {
         expPoints = `M ${x} ${yExp}`;
         todayPoints = `M ${x} ${yToday}`;
+        targetPoints = `M ${x} ${yTarget}`;
       } else {
         expPoints += ` L ${x} ${yExp}`;
         todayPoints += ` L ${x} ${yToday}`;
+        targetPoints += ` L ${x} ${yTarget}`;
       }
     });
 
     const zeroY = getSvgY(0);
     const spotLineX = optionChain ? getSvgX(optionChain.underlying_price) : 0;
+    const simulatedSpotX = simulatedSpot ? getSvgX(simulatedSpot) : 0;
+    const simulatedTargetY = simulatedSpotMetrics ? getSvgY(simulatedSpotMetrics.simulatedDatePnl) : 0;
+    const simulatedExpY = simulatedSpotMetrics ? getSvgY(simulatedSpotMetrics.expPnl) : 0;
     
-    return { expPath: expPoints, todayPath: todayPoints, zeroY, spotLineX };
-  }, [payoffCurve, chartScale, optionChain?.underlying_price]);
+    return {
+      expPath: expPoints,
+      todayPath: todayPoints,
+      targetDatePath: targetPoints,
+      zeroY,
+      spotLineX,
+      simulatedSpotX,
+      simulatedTargetY,
+      simulatedExpY
+    };
+  }, [dynamicPayoffCurve, chartScale, optionChain?.underlying_price, simulatedSpot, simulatedSpotMetrics]);
 
   // SVG mouse movement tooltip tracker
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement, MouseEvent>) => {
-    if (payoffCurve.length === 0 || !chartScale) return;
+    if (dynamicPayoffCurve.length === 0 || !chartScale) return;
     
     const svgRect = e.currentTarget.getBoundingClientRect();
     const xMouse = e.clientX - svgRect.left;
@@ -1979,13 +2449,13 @@ export default function App() {
     const pct = (xMouse - padding) / (chartWidth - 2 * padding);
     const targetSpot = chartScale.minSpot + pct * (chartScale.maxSpot - chartScale.minSpot);
     
-    const closest = payoffCurve.reduce((prev, curr) => {
+    const closest = dynamicPayoffCurve.reduce((prev, curr) => {
       return abs(curr.spot - targetSpot) < abs(prev.spot - targetSpot) ? curr : prev;
     });
     
     setHoveredPoint(closest);
     setHoverX(getSvgX(closest.spot));
-    setHoverY(getSvgY(closest.today_pnl));
+    setHoverY(getSvgY(closest.target_date_pnl ?? closest.today_pnl));
   };
 
   const abs = (val: number) => Math.abs(val);
@@ -2074,6 +2544,16 @@ export default function App() {
             >
               {chainLoading ? <RefreshCw className="animate-spin" size={14} /> : <RefreshCw size={14} />}
             </button>
+
+            {/* About Platform Button */}
+            <button 
+              className="outline" 
+              onClick={() => setShowAboutModal(true)}
+              style={{ height: '31px', padding: '0 0.75rem', marginTop: '1.05rem', display: 'flex', alignItems: 'center', gap: '5px', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.3)' }}
+              title="About Elite Option Strategy Builder"
+            >
+              <Info size={14} /> About
+            </button>
           </div>
         </div>
       </header>
@@ -2108,6 +2588,22 @@ export default function App() {
             }}
           >
             💼 Option Workbench
+          </button>
+          <button 
+            onClick={() => setActiveTab('analyzer')}
+            className={`tab-btn ${activeTab === 'analyzer' ? 'active' : ''}`}
+            style={{
+              flex: '1 1 auto',
+              padding: '0.35rem 0.75rem',
+              fontSize: '0.8rem',
+              fontWeight: 700,
+              background: activeTab === 'analyzer' ? 'linear-gradient(90deg, #ec4899, #8b5cf6)' : 'rgba(236, 72, 153, 0.15)',
+              border: '1px solid rgba(236, 72, 153, 0.4)',
+              color: activeTab === 'analyzer' ? '#ffffff' : '#f472b6',
+              boxShadow: activeTab === 'analyzer' ? '0 0 12px rgba(236, 72, 153, 0.5)' : undefined
+            }}
+          >
+            ⚡ Option Chain Analyzer
           </button>
           <button 
             onClick={() => setActiveTab('change_in_oi')}
@@ -2357,6 +2853,10 @@ export default function App() {
                 <button className="outline" onClick={() => loadStrategySetup({ name: 'Covered Call', rank: 1 } as any)}>Covered Call</button>
                 <button className="outline" onClick={() => loadStrategySetup({ name: 'Bull Call Debit Spread', rank: 1 } as any)}>Bull Call Spread</button>
                 <button className="outline" onClick={() => loadStrategySetup({ name: 'Bull Put Credit Spread', rank: 1 } as any)}>Bull Put Spread</button>
+                <button className="outline" onClick={() => loadStrategySetup({ name: 'Classic Equity Collar', rank: 1 } as any)}>Classic Equity Collar</button>
+                <button className="outline" onClick={() => loadStrategySetup({ name: 'Speculative Bearish Collar', rank: 1 } as any)}>Speculative Collar (Bear)</button>
+                <button className="outline" onClick={() => loadStrategySetup({ name: 'Bullish Reverse-Collar', rank: 1 } as any)}>Reverse-Collar (Bull)</button>
+                <button className="outline" onClick={() => loadStrategySetup({ name: 'Reverse-Collar Hedge', rank: 1 } as any)}>Reverse-Collar Hedge (Short)</button>
                 <button className="outline" onClick={() => loadStrategySetup({ name: 'Iron Condor', rank: 1 } as any)}>Iron Condor</button>
                 <button className="outline" onClick={() => loadStrategySetup({ name: 'Short Straddle', rank: 1 } as any)}>Short Straddle</button>
                 <button className="outline" onClick={() => loadStrategySetup({ name: 'Call Ratio Backspread', rank: 1 } as any)}>Ratio Backspread</button>
@@ -3201,7 +3701,7 @@ export default function App() {
                 </span>
               </div>
               
-              {strategistData.warnings.length > 0 && (
+              {strategistData.warnings && strategistData.warnings.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', marginBottom: '1rem' }}>
                   {strategistData.warnings.map((w, idx) => (
                     <div key={idx} style={{ background: 'rgba(244, 63, 94, 0.1)', border: '1px solid rgba(244, 63, 94, 0.2)', padding: '0.5rem 0.8rem', borderRadius: '8px', fontSize: '0.8rem', color: '#f43f5e', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -3215,7 +3715,7 @@ export default function App() {
               {/* Institutional High-Conviction Spotlights */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '1.5rem' }}>
                 {/* Buy Side Spotlight */}
-                {strategistData.buying_strategies.length > 0 && (() => {
+                {strategistData.buying_strategies && strategistData.buying_strategies.length > 0 && (() => {
                   const topBuy = strategistData.buying_strategies[0];
                   const conviction = getConvictionLabel((topBuy as any).score || 80);
                   return (
@@ -3259,7 +3759,7 @@ export default function App() {
                 })()}
 
                 {/* Sell Side Spotlight */}
-                {strategistData.selling_strategies.length > 0 && (() => {
+                {strategistData.selling_strategies && strategistData.selling_strategies.length > 0 && (() => {
                   const topSell = strategistData.selling_strategies[0];
                   const conviction = getConvictionLabel((topSell as any).score || 80);
                   return (
@@ -3313,10 +3813,17 @@ export default function App() {
                     {strategistData.buying_strategies.map((strat, i) => (
                       <div key={i} className="card strategist-card" style={{ padding: '1rem' }}>
                         <div className="strategist-header">
-                          <strong style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
-                            {strat.rank}. {strat.name}
-                          </strong>
-                          <span className="risk-tag defined">{strat.risk_type}</span>
+                          <div>
+                            <strong style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
+                              {strat.rank}. {strat.name}
+                            </strong>
+                            {strat.saliba_framework && (
+                              <span style={{ marginLeft: '0.5rem', fontSize: '0.7rem', background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(16, 185, 129, 0.3)', fontWeight: 600 }}>
+                                📘 {strat.saliba_framework}
+                              </span>
+                            )}
+                          </div>
+                          <span className={`risk-tag ${strat.risk_type.includes('UNDEFINED') ? 'undefined' : 'defined'}`}>{strat.risk_type}</span>
                         </div>
                         <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>{strat.description}</p>
                         <div style={{ fontSize: '0.8rem', background: 'rgba(255, 255, 255, 0.03)', padding: '0.4rem 0.6rem', borderRadius: '6px', marginBottom: '0.5rem', color: '#60a5fa' }}>
@@ -3349,10 +3856,17 @@ export default function App() {
                     {strategistData.selling_strategies.map((strat, i) => (
                       <div key={i} className="card strategist-card selling" style={{ padding: '1rem' }}>
                         <div className="strategist-header">
-                          <strong style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
-                            {strat.rank}. {strat.name}
-                          </strong>
-                          <span className={`risk-tag ${strat.risk_type === 'UNDEFINED RISK' ? 'undefined' : 'defined'}`}>{strat.risk_type}</span>
+                          <div>
+                            <strong style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
+                              {strat.rank}. {strat.name}
+                            </strong>
+                            {strat.saliba_framework && (
+                              <span style={{ marginLeft: '0.5rem', fontSize: '0.7rem', background: 'rgba(139, 92, 246, 0.15)', color: '#c084fc', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(139, 92, 246, 0.3)', fontWeight: 600 }}>
+                                📘 {strat.saliba_framework}
+                              </span>
+                            )}
+                          </div>
+                          <span className={`risk-tag ${strat.risk_type.includes('UNDEFINED') ? 'undefined' : 'defined'}`}>{strat.risk_type}</span>
                         </div>
                         <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>{strat.description}</p>
                         <div style={{ fontSize: '0.8rem', background: 'rgba(255, 255, 255, 0.03)', padding: '0.4rem 0.6rem', borderRadius: '6px', marginBottom: '0.5rem', color: '#c084fc' }}>
@@ -3459,22 +3973,275 @@ export default function App() {
           </div>
 
           {/* PAYOFF PLOT AND GREEKS */}
-          {payoffCurve.length > 0 && chartScale && (
+          {dynamicPayoffCurve.length > 0 && chartScale && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem' }}>
               <div className="card">
-                <h3 className="card-title">Interactive Option Payoff Profile</h3>
-                
-                <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '1rem', fontSize: '0.85rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <span style={{ width: '12px', height: '3px', background: '#3b82f6', display: 'inline-block' }}></span>
-                    <span>Payoff Today (BS Greeks)</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <span style={{ width: '12px', height: '3px', background: '#10b981', borderStyle: 'dashed', borderWidth: '1.5px', borderColor: '#10b981', display: 'inline-block' }}></span>
-                    <span>Payoff at Expiration</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
+                  <h3 className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Activity size={18} color="#38bdf8" />
+                    Interactive Option Payoff Profile
+                  </h3>
+
+                  {/* Payoff Curve Legend */}
+                  <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap', fontSize: '0.8rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <span style={{ width: '14px', height: '3px', background: '#f59e0b', display: 'inline-block', borderRadius: '2px', boxShadow: '0 0 6px rgba(245, 158, 11, 0.7)' }}></span>
+                      <strong style={{ color: '#fbbf24' }}>Target Date (T+{targetDaysElapsed})</strong>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <span style={{ width: '14px', height: '2px', background: '#38bdf8', borderStyle: 'dashed', borderWidth: '1px', borderColor: '#38bdf8', display: 'inline-block' }}></span>
+                      <span style={{ color: 'var(--text-secondary)' }}>Today (T+0)</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <span style={{ width: '14px', height: '2px', background: '#10b981', borderStyle: 'dashed', borderWidth: '1px', borderColor: '#10b981', display: 'inline-block' }}></span>
+                      <span style={{ color: '#10b981' }}>At Expiry (T+{daysToExpiry})</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <span style={{ width: '10px', height: '10px', borderLeft: '2px dashed #f59e0b', display: 'inline-block' }}></span>
+                      <span style={{ color: '#f59e0b' }}>Simulated Price</span>
+                    </div>
                   </div>
                 </div>
 
+                {/* INTERACTIVE DATE & PRICE SIMULATION CONTROLS */}
+                <div className="payoff-sim-panel">
+                  <div className="payoff-sim-grid">
+                    
+                    {/* DATE SIMULATOR (DATEWISE PAYOFF) */}
+                    <div className="payoff-sim-card">
+                      <div className="payoff-sim-header">
+                        <div className="payoff-sim-title">
+                          <Clock size={15} color="#fbbf24" />
+                          <span>Date Simulator</span>
+                        </div>
+                        <div className="payoff-sim-badges">
+                          <span className="payoff-sim-badge date-badge">
+                            <Calendar size={12} />
+                            {simulatedTargetDateInfo.targetDateStr} (T+{targetDaysElapsed}d)
+                          </span>
+                          <span className="payoff-sim-badge" style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)' }}>
+                            {simulatedTargetDateInfo.remainingDays} DTE
+                          </span>
+                          <button 
+                            className="sim-reset-btn" 
+                            onClick={() => setTargetDaysElapsed(0)}
+                            title="Reset Date to Today (T+0)"
+                          >
+                            <RotateCcw size={11} /> Reset
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="payoff-sim-slider-wrap">
+                        <input 
+                          type="range" 
+                          className="payoff-range-slider" 
+                          min={0} 
+                          max={Math.max(1, daysToExpiry)} 
+                          step={1} 
+                          value={targetDaysElapsed} 
+                          onChange={(e) => setTargetDaysElapsed(parseInt(e.target.value) || 0)} 
+                        />
+                        <div className="payoff-slider-markers">
+                          <span>Today (T+0)</span>
+                          <span>T+{Math.round(daysToExpiry / 2)}d</span>
+                          <span>Expiry (T+{daysToExpiry}d)</span>
+                        </div>
+                      </div>
+
+                      <div className="payoff-sim-presets">
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginRight: '0.2rem' }}>Quick Jump:</span>
+                        <button 
+                          type="button" 
+                          className={`sim-chip ${targetDaysElapsed === 0 ? 'active' : ''}`}
+                          onClick={() => setTargetDaysElapsed(0)}
+                        >
+                          Today (T+0)
+                        </button>
+                        {daysToExpiry >= 1 && (
+                          <button 
+                            type="button" 
+                            className={`sim-chip ${targetDaysElapsed === 1 ? 'active' : ''}`}
+                            onClick={() => setTargetDaysElapsed(1)}
+                          >
+                            +1 Day
+                          </button>
+                        )}
+                        {daysToExpiry >= 3 && (
+                          <button 
+                            type="button" 
+                            className={`sim-chip ${targetDaysElapsed === 3 ? 'active' : ''}`}
+                            onClick={() => setTargetDaysElapsed(3)}
+                          >
+                            +3 Days
+                          </button>
+                        )}
+                        {daysToExpiry >= 7 && (
+                          <button 
+                            type="button" 
+                            className={`sim-chip ${targetDaysElapsed === 7 ? 'active' : ''}`}
+                            onClick={() => setTargetDaysElapsed(7)}
+                          >
+                            +7 Days
+                          </button>
+                        )}
+                        <button 
+                          type="button" 
+                          className={`sim-chip ${targetDaysElapsed === daysToExpiry ? 'active' : ''}`}
+                          onClick={() => setTargetDaysElapsed(daysToExpiry)}
+                        >
+                          Expiry (T+{daysToExpiry})
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* PRICE MOVEMENT SIMULATOR (PRICEWISE PAYOFF) */}
+                    <div className="payoff-sim-card">
+                      <div className="payoff-sim-header">
+                        <div className="payoff-sim-title">
+                          <Crosshair size={15} color="#38bdf8" />
+                          <span>Price Simulator</span>
+                        </div>
+                        <div className="payoff-sim-badges">
+                          <span className="payoff-sim-badge price-badge">
+                            Spot: Rs.{underlyingSpot.toFixed(1)}
+                          </span>
+                          <span 
+                            className="payoff-sim-badge price-badge" 
+                            style={{ 
+                              color: priceChangePct >= 0 ? '#10b981' : '#f43f5e', 
+                              borderColor: priceChangePct >= 0 ? 'rgba(16,185,129,0.35)' : 'rgba(244,63,94,0.35)' 
+                            }}
+                          >
+                            Target: Rs.{simulatedSpot.toFixed(1)} ({priceChangePct >= 0 ? '+' : ''}{priceChangePct.toFixed(1)}%)
+                          </span>
+                          <button 
+                            className="sim-reset-btn" 
+                            onClick={() => setPriceChangePct(0)}
+                            title="Reset Price to Current Spot (0%)"
+                          >
+                            <RotateCcw size={11} /> Reset
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="payoff-sim-slider-wrap">
+                        <input 
+                          type="range" 
+                          className="payoff-range-slider price-slider" 
+                          min={-15} 
+                          max={15} 
+                          step={0.1} 
+                          value={priceChangePct} 
+                          onChange={(e) => setPriceChangePct(parseFloat(e.target.value) || 0)} 
+                        />
+                        <div className="payoff-slider-markers">
+                          <span>-15% (Rs.{(underlyingSpot * 0.85).toFixed(0)})</span>
+                          <span>Spot (0%)</span>
+                          <span>+15% (Rs.{(underlyingSpot * 1.15).toFixed(0)})</span>
+                        </div>
+                      </div>
+
+                      <div className="payoff-sim-presets">
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginRight: '0.2rem' }}>Shift:</span>
+                        {[-5.0, -2.0, -1.0, 0.0, 1.0, 2.0, 5.0].map(pct => (
+                          <button 
+                            key={pct}
+                            type="button" 
+                            className={`sim-chip price-chip ${Math.abs(priceChangePct - pct) < 0.05 ? 'active' : ''}`}
+                            onClick={() => setPriceChangePct(pct)}
+                          >
+                            {pct === 0 ? '0% (Spot)' : (pct > 0 ? `+${pct}%` : `${pct}%`)}
+                          </button>
+                        ))}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginLeft: 'auto' }}>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Target:</span>
+                          <input 
+                            type="number" 
+                            step="5"
+                            placeholder="Rs."
+                            value={simulatedSpot || ''}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value);
+                              if (underlyingSpot && !isNaN(val)) {
+                                setPriceChangePct(((val - underlyingSpot) / underlyingSpot) * 100);
+                              }
+                            }}
+                            style={{ width: '85px', padding: '0.15rem 0.35rem', fontSize: '0.72rem', height: '24px' }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* REAL-TIME SIMULATED PAYOFF & GREEKS HUD */}
+                  {simulatedSpotMetrics && (
+                    <div className="payoff-hud-banner">
+                      <div className="hud-item">
+                        <span className="hud-label">Simulated Spot</span>
+                        <div className="hud-value spot-highlight">
+                          Rs.{simulatedSpot.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
+                        </div>
+                        <span className="hud-sub">
+                          {simulatedSpot >= underlyingSpot ? '+' : ''}Rs.{(simulatedSpot - underlyingSpot).toFixed(1)} ({priceChangePct >= 0 ? '+' : ''}{priceChangePct.toFixed(2)}%)
+                        </span>
+                      </div>
+
+                      <div className="hud-item">
+                        <span className="hud-label">Payoff on Target Date</span>
+                        <div className={`hud-value ${simulatedSpotMetrics.simulatedDatePnl >= 0 ? 'positive' : 'negative'}`}>
+                          {simulatedSpotMetrics.simulatedDatePnl >= 0 ? '+' : ''}Rs.{simulatedSpotMetrics.simulatedDatePnl.toLocaleString('en-IN')}
+                        </div>
+                        <span className="hud-sub" style={{ color: '#fbbf24' }}>
+                          T+{targetDaysElapsed} ({simulatedTargetDateInfo.targetDateStr})
+                        </span>
+                      </div>
+
+                      <div className="hud-item">
+                        <span className="hud-label">Payoff Today (T+0)</span>
+                        <div className={`hud-value ${simulatedSpotMetrics.todayPnl >= 0 ? 'positive' : 'negative'}`}>
+                          {simulatedSpotMetrics.todayPnl >= 0 ? '+' : ''}Rs.{simulatedSpotMetrics.todayPnl.toLocaleString('en-IN')}
+                        </div>
+                        <span className="hud-sub">
+                          Baseline today
+                        </span>
+                      </div>
+
+                      <div className="hud-item">
+                        <span className="hud-label">Payoff at Expiration</span>
+                        <div className={`hud-value ${simulatedSpotMetrics.expPnl >= 0 ? 'positive' : 'negative'}`}>
+                          {simulatedSpotMetrics.expPnl >= 0 ? '+' : ''}Rs.{simulatedSpotMetrics.expPnl.toLocaleString('en-IN')}
+                        </div>
+                        <span className="hud-sub" style={{ color: '#10b981' }}>
+                          Expiry ({simulatedTargetDateInfo.expiryDateStr})
+                        </span>
+                      </div>
+
+                      <div className="hud-item">
+                        <span className="hud-label">Time Decay Effect</span>
+                        <div className={`hud-value ${(simulatedSpotMetrics.simulatedDatePnl - simulatedSpotMetrics.todayPnl) >= 0 ? 'positive' : 'negative'}`}>
+                          {(simulatedSpotMetrics.simulatedDatePnl - simulatedSpotMetrics.todayPnl) >= 0 ? '+' : ''}Rs.{(simulatedSpotMetrics.simulatedDatePnl - simulatedSpotMetrics.todayPnl).toLocaleString('en-IN')}
+                        </div>
+                        <span className="hud-sub">
+                          Target vs. Today diff
+                        </span>
+                      </div>
+
+                      <div className="hud-item">
+                        <span className="hud-label">Position Greeks @ Spot</span>
+                        <div className="hud-value highlight" style={{ fontSize: '0.9rem' }}>
+                          Delta: {simulatedSpotMetrics.delta}
+                        </div>
+                        <span className="hud-sub">
+                          Theta: Rs.{simulatedSpotMetrics.theta}/day
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* SVG PAYOFF CHART */}
                 <div className="payoff-chart-wrapper">
                   <svg className="chart-svg" viewBox={`0 0 ${chartWidth} ${chartHeight}`} onMouseMove={handleMouseMove} onMouseLeave={() => setHoveredPoint(null)}>
                     {/* Y=0 horizontal dashed axis */}
@@ -3488,7 +4255,7 @@ export default function App() {
                       strokeWidth={1.5}
                     />
 
-                    {/* Spot vertical line indicator */}
+                    {/* Underlying Spot vertical line indicator */}
                     <line 
                       x1={spotLineX} 
                       y1={padding} 
@@ -3498,6 +4265,64 @@ export default function App() {
                       strokeWidth={1}
                       strokeDasharray="2,2"
                     />
+
+                    {/* Simulated Spot vertical line indicator */}
+                    {simulatedSpotX > 0 && (
+                      <>
+                        <line 
+                          x1={simulatedSpotX} 
+                          y1={padding} 
+                          x2={simulatedSpotX} 
+                          y2={chartHeight - padding} 
+                          stroke="#f59e0b" 
+                          strokeWidth={1.8}
+                          strokeDasharray="3,3"
+                        />
+                        
+                        {/* Circle marker on Target Date curve */}
+                        <circle 
+                          cx={simulatedSpotX} 
+                          cy={simulatedTargetY} 
+                          r={6} 
+                          fill="#f59e0b" 
+                          stroke="#ffffff" 
+                          strokeWidth={2}
+                        />
+
+                        {/* Circle marker on Expiration curve */}
+                        <circle 
+                          cx={simulatedSpotX} 
+                          cy={simulatedExpY} 
+                          r={5} 
+                          fill="#10b981" 
+                          stroke="#ffffff" 
+                          strokeWidth={1.5}
+                        />
+
+                        {/* Top Simulated Price Badge */}
+                        <rect 
+                          x={simulatedSpotX - 48} 
+                          y={padding - 26} 
+                          width={96} 
+                          height={20} 
+                          rx={4} 
+                          fill="rgba(15, 23, 42, 0.95)" 
+                          stroke="#f59e0b" 
+                          strokeWidth={1} 
+                        />
+                        <text 
+                          x={simulatedSpotX} 
+                          y={padding - 12} 
+                          textAnchor="middle" 
+                          fill="#fbbf24" 
+                          fontSize="10" 
+                          fontWeight="bold"
+                          fontFamily="monospace"
+                        >
+                          Rs.{simulatedSpot.toFixed(0)} ({priceChangePct >= 0 ? '+' : ''}{priceChangePct.toFixed(1)}%)
+                        </text>
+                      </>
+                    )}
                     
                     {/* Expiration Payoff line */}
                     <path 
@@ -3508,12 +4333,22 @@ export default function App() {
                       strokeDasharray="4,4"
                     />
 
-                    {/* Today Payoff line */}
+                    {/* Today Payoff line (subtle comparison) */}
                     <path 
                       d={todayPath} 
                       fill="none" 
-                      stroke="#3b82f6" 
-                      strokeWidth={2.5}
+                      stroke="#38bdf8" 
+                      strokeWidth={1.8}
+                      strokeDasharray="3,3"
+                      opacity={0.65}
+                    />
+
+                    {/* Target Date Payoff line (dynamic active curve) */}
+                    <path 
+                      d={targetDatePath} 
+                      fill="none" 
+                      stroke="#f59e0b" 
+                      strokeWidth={2.8}
                     />
 
                     {/* Tooltip vertical line tracking */}
@@ -3531,7 +4366,7 @@ export default function App() {
                           cx={hoverX} 
                           cy={hoverY} 
                           r={5} 
-                          fill="#3b82f6" 
+                          fill="#f59e0b" 
                           stroke="white" 
                           strokeWidth={1.5}
                         />
@@ -3547,14 +4382,15 @@ export default function App() {
                     Rs.{chartScale.maxSpot.toFixed(0)}
                   </span>
                   <span style={{ position: 'absolute', left: `${spotLineX}px`, top: '15px', fontSize: '0.7rem', color: '#60a5fa', transform: 'translateX(-50%)', background: 'rgba(10, 13, 20, 0.8)', padding: '2px 6px', borderRadius: '4px' }}>
-                    Spot: {optionChain?.underlying_price.toFixed(1)}
+                    Current Spot: {optionChain?.underlying_price.toFixed(1)}
                   </span>
 
                   {/* Interactive Tooltip Card overlay */}
                   {hoveredPoint && (
-                    <div style={{ position: 'absolute', left: `${hoverX + 15}px`, top: `${hoverY - 40}px`, background: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', padding: '0.6rem 0.8rem', borderRadius: '8px', zIndex: 10, fontSize: '0.8rem', pointerEvents: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}>
-                      <div>Stock price: <strong>Rs.{hoveredPoint.spot.toFixed(2)}</strong></div>
-                      <div style={{ color: '#3b82f6' }}>P&L Today: <strong>Rs.{hoveredPoint.today_pnl.toFixed(2)}</strong></div>
+                    <div style={{ position: 'absolute', left: `${hoverX + 15}px`, top: `${hoverY - 50}px`, background: '#1e293b', border: '1px solid rgba(255,255,255,0.15)', padding: '0.65rem 0.85rem', borderRadius: '8px', zIndex: 10, fontSize: '0.8rem', pointerEvents: 'none', boxShadow: '0 6px 16px rgba(0,0,0,0.6)' }}>
+                      <div>Stock Price: <strong>Rs.{hoveredPoint.spot.toFixed(2)}</strong></div>
+                      <div style={{ color: '#fbbf24', fontWeight: 600 }}>P&L Target Date (T+{targetDaysElapsed}): <strong>Rs.{(hoveredPoint.target_date_pnl ?? hoveredPoint.today_pnl).toFixed(2)}</strong></div>
+                      <div style={{ color: '#38bdf8' }}>P&L Today (T+0): <strong>Rs.{hoveredPoint.today_pnl.toFixed(2)}</strong></div>
                       <div style={{ color: '#10b981' }}>P&L Expiry: <strong>Rs.{hoveredPoint.expiration_pnl.toFixed(2)}</strong></div>
                     </div>
                   )}
@@ -3644,78 +4480,673 @@ export default function App() {
           )}
 
           {/* OPTIONS CHAIN TABLE */}
-          {optionChain && (
-            <div className="card">
-              <h3 className="card-title">NSE Option Chain (Expiry: {optionChain.selected_expiry})</h3>
-              <div className="option-chain-container">
-                <table className="option-chain-table">
-                  <thead>
-                    <tr>
-                      <th colSpan={5} className="ce-header" style={{ color: '#10b981' }}>CALL OPTIONS (CE)</th>
-                      <th style={{ background: 'rgba(255,255,255,0.05)' }}>STRIKE</th>
-                      <th colSpan={5} className="pe-header" style={{ color: '#f43f5e' }}>PUT OPTIONS (PE)</th>
-                    </tr>
-                    <tr>
-                      <th>OI</th>
-                      <th>OI Chg</th>
-                      <th>IV%</th>
-                      <th>Bid</th>
-                      <th>Ask</th>
-                      <th style={{ background: 'rgba(255,255,255,0.05)' }}>Price</th>
-                      <th>Bid</th>
-                      <th>Ask</th>
-                      <th>IV%</th>
-                      <th>OI Chg</th>
-                      <th>OI</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {optionChain.strikes.map((row) => {
-                      const isAtTheMoney = row.strike === optionChain.atm_strike;
-                      
-                      return (
-                        <tr key={row.strike} style={isAtTheMoney ? { background: 'rgba(59, 130, 246, 0.05)' } : {}}>
-                          <td style={{ color: 'var(--text-muted)' }}>{row.CE.oi.toLocaleString()}</td>
-                          <td style={{ color: row.CE.oi_change >= 0 ? '#10b981' : '#f43f5e' }}>
-                            {row.CE.oi_change.toLocaleString()}
-                          </td>
-                          <td>{(row.CE.iv).toFixed(1)}%</td>
-                          <td>
-                            <span className="clickable-price bid" onClick={() => addLeg({ type: 'call', action: 'sell', strike: row.strike, premium: row.CE.bid || row.CE.ltp, quantity: 1 })}>
-                              {row.CE.bid || '-'}
+          {optionChain && (() => {
+            const resolvedAtm = Number(optionChain.atm_strike || (
+              optionChain.strikes && optionChain.strikes.length > 0
+                ? optionChain.strikes.reduce((prev, curr) =>
+                    Math.abs(Number(curr.strike) - Number(optionChain.underlying_price)) < Math.abs(Number(prev.strike) - Number(optionChain.underlying_price)) ? curr : prev
+                  ).strike
+                : 0
+            ));
+
+            const sortedStrikes = (optionChain.strikes || []).slice().sort((a, b) => Number(a.strike) - Number(b.strike));
+            const atmIndex = sortedStrikes.findIndex(s => Math.abs(Number(s.strike) - resolvedAtm) < 0.01) !== -1
+              ? sortedStrikes.findIndex(s => Math.abs(Number(s.strike) - resolvedAtm) < 0.01)
+              : sortedStrikes.reduce((closestIdx, curr, idx) => 
+                  Math.abs(Number(curr.strike) - resolvedAtm) < Math.abs(Number(sortedStrikes[closestIdx].strike) - resolvedAtm) ? idx : closestIdx, 0);
+
+            // CE side: ATM + current N strikes (ATM, ATM+1, ATM+2, ATM+3)
+            const ceRange = sortedStrikes.slice(atmIndex, Math.min(sortedStrikes.length, atmIndex + nearAtmStrikeRange + 1));
+            const totalCeOi = ceRange.reduce((acc, curr) => acc + (Number(curr.CE?.oi) || 0), 0);
+            const totalCeOiChg = ceRange.reduce((acc, curr) => acc + (Number(curr.CE?.oi_change) || 0), 0);
+
+            // PE side: ATM + current N strikes (ATM-3, ATM-2, ATM-1, ATM)
+            const peRange = sortedStrikes.slice(Math.max(0, atmIndex - nearAtmStrikeRange), atmIndex + 1);
+            const totalPeOi = peRange.reduce((acc, curr) => acc + (Number(curr.PE?.oi) || 0), 0);
+            const totalPeOiChg = peRange.reduce((acc, curr) => acc + (Number(curr.PE?.oi_change) || 0), 0);
+
+            // Symmetrical Window (ATM - N to ATM + N strikes)
+            const nearAtmWindowStrikes = sortedStrikes.slice(
+              Math.max(0, atmIndex - nearAtmStrikeRange),
+              Math.min(sortedStrikes.length, atmIndex + nearAtmStrikeRange + 1)
+            );
+
+            // PCR and bias
+            const nearAtmPcr = totalCeOi > 0 ? (totalPeOi / totalCeOi) : 0;
+            const netOiDiff = totalPeOi - totalCeOi;
+            const sumOi = totalCeOi + totalPeOi;
+            const ceShare = sumOi > 0 ? Math.round((totalCeOi / sumOi) * 100) : 50;
+            const peShare = sumOi > 0 ? 100 - ceShare : 50;
+            const maxNearStrikeOi = Math.max(...nearAtmWindowStrikes.map(s => Math.max(s.CE?.oi || 0, s.PE?.oi || 0)), 1);
+
+            return (
+              <div className="card">
+                {/* CARD HEADER */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <h3 className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Layers size={18} style={{ color: '#38bdf8' }} /> NSE Option Chain (Expiry: {optionChain.selected_expiry})
+                  </h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      Spot: <strong style={{ color: '#facc15' }}>₹{optionChain.underlying_price.toLocaleString()}</strong> | ATM: <strong style={{ color: '#f59e0b' }}>{resolvedAtm}</strong>
+                    </span>
+                    <button
+                      onClick={() => {
+                        const el = document.getElementById('workbench-atm-row');
+                        if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                      }}
+                      style={{
+                        padding: '4px 12px',
+                        fontSize: '0.75rem',
+                        fontWeight: 800,
+                        background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                        color: '#000000',
+                        border: 'none',
+                        borderRadius: '5px',
+                        cursor: 'pointer',
+                        boxShadow: '0 0 10px rgba(245, 158, 11, 0.5)'
+                      }}
+                      title="Scroll table to At-The-Money strike"
+                    >
+                      🎯 Jump to ATM ({resolvedAtm})
+                    </button>
+                  </div>
+                </div>
+
+                {/* ─── TAB STRIP ABOVE OPTION CHAIN ─────────────────────────────────── */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '0.6rem',
+                  borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                  paddingBottom: '0.8rem',
+                  marginBottom: '1rem',
+                  flexWrap: 'wrap',
+                  background: 'rgba(15, 23, 42, 0.5)',
+                  padding: '0.5rem 0.8rem',
+                  borderRadius: '10px',
+                  border: '1px solid rgba(255, 255, 255, 0.06)'
+                }}>
+                  {/* Left: View Mode Tabs */}
+                  <div style={{ display: 'flex', gap: '0.4rem', background: 'rgba(0, 0, 0, 0.4)', padding: '3px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                    <button
+                      onClick={() => setChainTab('both')}
+                      style={{
+                        padding: '6px 13px',
+                        fontSize: '0.78rem',
+                        fontWeight: 700,
+                        borderRadius: '6px',
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: chainTab === 'both' ? 'linear-gradient(135deg, #0284c7, #2563eb)' : 'transparent',
+                        color: chainTab === 'both' ? '#ffffff' : 'var(--text-muted)',
+                        boxShadow: chainTab === 'both' ? '0 0 10px rgba(37, 99, 235, 0.5)' : undefined,
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      📊 Near-ATM Summary & Chain
+                    </button>
+                    <button
+                      onClick={() => setChainTab('near_atm')}
+                      style={{
+                        padding: '6px 13px',
+                        fontSize: '0.78rem',
+                        fontWeight: 700,
+                        borderRadius: '6px',
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: chainTab === 'near_atm' ? 'linear-gradient(135deg, #059669, #10b981)' : 'transparent',
+                        color: chainTab === 'near_atm' ? '#ffffff' : 'var(--text-muted)',
+                        boxShadow: chainTab === 'near_atm' ? '0 0 10px rgba(16, 185, 129, 0.5)' : undefined,
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      🎯 Near-ATM OI Focus (ATM ± {nearAtmStrikeRange})
+                    </button>
+                    <button
+                      onClick={() => setChainTab('full_chain')}
+                      style={{
+                        padding: '6px 13px',
+                        fontSize: '0.78rem',
+                        fontWeight: 700,
+                        borderRadius: '6px',
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: chainTab === 'full_chain' ? 'rgba(255, 255, 255, 0.15)' : 'transparent',
+                        color: chainTab === 'full_chain' ? '#ffffff' : 'var(--text-muted)',
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      📜 Full Chain Only
+                    </button>
+                  </div>
+
+                  {/* Right: Controls & Range Selector */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Range:</span>
+                      <button
+                        onClick={() => setNearAtmStrikeRange(3)}
+                        style={{
+                          padding: '4px 9px',
+                          fontSize: '0.72rem',
+                          fontWeight: 800,
+                          borderRadius: '5px',
+                          border: nearAtmStrikeRange === 3 ? '1px solid #38bdf8' : '1px solid rgba(255,255,255,0.1)',
+                          background: nearAtmStrikeRange === 3 ? 'rgba(56, 189, 248, 0.2)' : 'transparent',
+                          color: nearAtmStrikeRange === 3 ? '#38bdf8' : 'var(--text-muted)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        ATM ± 3 Strikes
+                      </button>
+                      <button
+                        onClick={() => setNearAtmStrikeRange(5)}
+                        style={{
+                          padding: '4px 9px',
+                          fontSize: '0.72rem',
+                          fontWeight: 800,
+                          borderRadius: '5px',
+                          border: nearAtmStrikeRange === 5 ? '1px solid #38bdf8' : '1px solid rgba(255,255,255,0.1)',
+                          background: nearAtmStrikeRange === 5 ? 'rgba(56, 189, 248, 0.2)' : 'transparent',
+                          color: nearAtmStrikeRange === 5 ? '#38bdf8' : 'var(--text-muted)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        ATM ± 5 Strikes
+                      </button>
+                    </div>
+
+                    {chainTab !== 'full_chain' && (
+                      <button
+                        onClick={() => setNearAtmViewMode(nearAtmViewMode === 'cards_and_table' ? 'cards_only' : 'cards_and_table')}
+                        style={{
+                          padding: '4px 10px',
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          borderRadius: '5px',
+                          border: '1px solid rgba(255,255,255,0.12)',
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          color: 'var(--text-main)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {nearAtmViewMode === 'cards_and_table' ? 'Hide Strike Table' : 'Show Strike Table'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* ─── TAB CONTENT: NEAR-ATM OPEN INTEREST SNAPSHOT ─────────────────── */}
+                {chainTab !== 'full_chain' && (
+                  <div style={{
+                    marginBottom: '1.2rem',
+                    background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.8), rgba(30, 41, 59, 0.6))',
+                    border: '1px solid rgba(56, 189, 248, 0.25)',
+                    borderRadius: '12px',
+                    padding: '1rem',
+                    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)'
+                  }}>
+                    {/* Header Banner */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.9rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{
+                          background: 'linear-gradient(135deg, #38bdf8, #818cf8)',
+                          color: '#000000',
+                          fontWeight: 900,
+                          fontSize: '0.7rem',
+                          padding: '2px 8px',
+                          borderRadius: '4px',
+                          letterSpacing: '0.05em',
+                          textTransform: 'uppercase'
+                        }}>
+                          Near-ATM Open Interest Snapshot
+                        </span>
+                        <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>
+                          ATM ({resolvedAtm}) + Current {nearAtmStrikeRange} Strikes CE & PE
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: '#cbd5e1' }}>
+                        Net Bias:{' '}
+                        <strong style={{ color: netOiDiff >= 0 ? '#10b981' : '#f43f5e' }}>
+                          {netOiDiff >= 0 ? '🟢 Put Dominant (Support Floor)' : '🔴 Call Dominant (Resistance Wall)'}
+                        </strong>
+                      </div>
+                    </div>
+
+                    {/* 4 Metric Cards Grid */}
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
+                      gap: '0.8rem',
+                      marginBottom: '1rem'
+                    }}>
+                      {/* CARD 1: CE RESISTANCE */}
+                      <div style={{
+                        background: 'rgba(16, 185, 129, 0.06)',
+                        border: '1px solid rgba(16, 185, 129, 0.3)',
+                        borderRadius: '10px',
+                        padding: '0.8rem 1rem',
+                        position: 'relative',
+                        overflow: 'hidden'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                          <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#34d399', letterSpacing: '0.04em' }}>
+                            CALL OI (ATM + {nearAtmStrikeRange} STRIKES)
+                          </span>
+                          <span style={{
+                            fontSize: '0.65rem',
+                            padding: '1px 6px',
+                            borderRadius: '3px',
+                            background: totalCeOiChg >= 0 ? 'rgba(16, 185, 129, 0.2)' : 'rgba(244, 63, 94, 0.2)',
+                            color: totalCeOiChg >= 0 ? '#34d399' : '#fb7185',
+                            fontWeight: 700
+                          }}>
+                            {totalCeOiChg >= 0 ? '+' : ''}{totalCeOiChg.toLocaleString()} Chg
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '1.45rem', fontWeight: 900, color: '#ffffff', fontFamily: 'var(--font-family-secondary)' }}>
+                          {totalCeOi.toLocaleString()}
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '0.3rem', display: 'flex', justifyContent: 'space-between' }}>
+                          <span>Range: {ceRange[0]?.strike} - {ceRange[ceRange.length - 1]?.strike}</span>
+                          <span style={{ color: '#34d399' }}>{ceShare}% of Near-ATM</span>
+                        </div>
+                        <div style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.4)', marginTop: '0.2rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          Strikes: {ceRange.map(s => s.strike).join(', ')}
+                        </div>
+                      </div>
+
+                      {/* CARD 2: PE SUPPORT */}
+                      <div style={{
+                        background: 'rgba(244, 63, 94, 0.06)',
+                        border: '1px solid rgba(244, 63, 94, 0.3)',
+                        borderRadius: '10px',
+                        padding: '0.8rem 1rem',
+                        position: 'relative',
+                        overflow: 'hidden'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                          <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#fb7185', letterSpacing: '0.04em' }}>
+                            PUT OI (ATM + {nearAtmStrikeRange} STRIKES)
+                          </span>
+                          <span style={{
+                            fontSize: '0.65rem',
+                            padding: '1px 6px',
+                            borderRadius: '3px',
+                            background: totalPeOiChg >= 0 ? 'rgba(16, 185, 129, 0.2)' : 'rgba(244, 63, 94, 0.2)',
+                            color: totalPeOiChg >= 0 ? '#34d399' : '#fb7185',
+                            fontWeight: 700
+                          }}>
+                            {totalPeOiChg >= 0 ? '+' : ''}{totalPeOiChg.toLocaleString()} Chg
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '1.45rem', fontWeight: 900, color: '#ffffff', fontFamily: 'var(--font-family-secondary)' }}>
+                          {totalPeOi.toLocaleString()}
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '0.3rem', display: 'flex', justifyContent: 'space-between' }}>
+                          <span>Range: {peRange[0]?.strike} - {peRange[peRange.length - 1]?.strike}</span>
+                          <span style={{ color: '#fb7185' }}>{peShare}% of Near-ATM</span>
+                        </div>
+                        <div style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.4)', marginTop: '0.2rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          Strikes: {peRange.map(s => s.strike).join(', ')}
+                        </div>
+                      </div>
+
+                      {/* CARD 3: NEAR-ATM PCR */}
+                      <div style={{
+                        background: 'rgba(56, 189, 248, 0.06)',
+                        border: '1px solid rgba(56, 189, 248, 0.3)',
+                        borderRadius: '10px',
+                        padding: '0.8rem 1rem'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                          <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#38bdf8', letterSpacing: '0.04em' }}>
+                            NEAR-ATM PCR (PE / CE)
+                          </span>
+                          <span style={{
+                            fontSize: '0.65rem',
+                            padding: '2px 7px',
+                            borderRadius: '3px',
+                            fontWeight: 800,
+                            background: nearAtmPcr >= 1.25 ? 'rgba(16, 185, 129, 0.25)' : nearAtmPcr <= 0.8 ? 'rgba(244, 63, 94, 0.25)' : 'rgba(245, 158, 11, 0.25)',
+                            color: nearAtmPcr >= 1.25 ? '#34d399' : nearAtmPcr <= 0.8 ? '#fb7185' : '#fbbf24'
+                          }}>
+                            {nearAtmPcr >= 1.25 ? 'BULLISH' : nearAtmPcr <= 0.8 ? 'BEARISH' : 'NEUTRAL'}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '1.45rem', fontWeight: 900, color: '#ffffff', fontFamily: 'var(--font-family-secondary)' }}>
+                          {nearAtmPcr.toFixed(2)}
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '0.3rem' }}>
+                          Net Diff: <strong style={{ color: netOiDiff >= 0 ? '#34d399' : '#fb7185' }}>{Math.abs(netOiDiff).toLocaleString()}</strong> {netOiDiff >= 0 ? 'PE excess' : 'CE excess'}
+                        </div>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                          Total Window OI: {(totalCeOi + totalPeOi).toLocaleString()}
+                        </div>
+                      </div>
+
+                      {/* CARD 4: OI DISTRIBUTION BAR */}
+                      <div style={{
+                        background: 'rgba(139, 92, 246, 0.06)',
+                        border: '1px solid rgba(139, 92, 246, 0.3)',
+                        borderRadius: '10px',
+                        padding: '0.8rem 1rem',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between'
+                      }}>
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#c084fc', letterSpacing: '0.04em' }}>
+                              NEAR-ATM OI SPLIT
                             </span>
-                          </td>
-                          <td>
-                            <span className="clickable-price ask" onClick={() => addLeg({ type: 'call', action: 'buy', strike: row.strike, premium: row.CE.ask || row.CE.ltp, quantity: 1 })}>
-                              {row.CE.ask || '-'}
+                            <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#ffffff' }}>
+                              {ceShare}% CE : {peShare}% PE
                             </span>
-                          </td>
-                          
-                          <td className="strike-cell">{row.strike}</td>
-                          
-                          <td>
-                            <span className="clickable-price ask" onClick={() => addLeg({ type: 'put', action: 'buy', strike: row.strike, premium: row.PE.bid || row.PE.ltp, quantity: 1 })}>
-                              {row.PE.bid || '-'}
-                            </span>
-                          </td>
-                          <td>
-                            <span className="clickable-price bid" onClick={() => addLeg({ type: 'put', action: 'sell', strike: row.strike, premium: row.PE.ask || row.PE.ltp, quantity: 1 })}>
-                              {row.PE.ask || '-'}
-                            </span>
-                          </td>
-                          <td>{(row.PE.iv).toFixed(1)}%</td>
-                          <td style={{ color: row.PE.oi_change >= 0 ? '#10b981' : '#f43f5e' }}>
+                          </div>
+                          {/* Visual Progress Bar */}
+                          <div style={{
+                            width: '100%',
+                            height: '10px',
+                            borderRadius: '5px',
+                            background: 'rgba(0, 0, 0, 0.4)',
+                            display: 'flex',
+                            overflow: 'hidden',
+                            margin: '0.4rem 0'
+                          }}>
+                            <div
+                              style={{
+                                width: `${ceShare}%`,
+                                background: 'linear-gradient(90deg, #059669, #10b981)',
+                                transition: 'width 0.3s ease'
+                              }}
+                              title={`Calls: ${totalCeOi.toLocaleString()} (${ceShare}%)`}
+                            />
+                            <div
+                              style={{
+                                width: `${peShare}%`,
+                                background: 'linear-gradient(90deg, #f43f5e, #e11d48)',
+                                transition: 'width 0.3s ease'
+                              }}
+                              title={`Puts: ${totalPeOi.toLocaleString()} (${peShare}%)`}
+                            />
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: '#34d399' }}>● Calls: {totalCeOi.toLocaleString()}</span>
+                          <span style={{ color: '#fb7185' }}>● Puts: {totalPeOi.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* STRIKE-BY-STRIKE BREAKDOWN TABLE FOR ATM ± 3 STRIKES */}
+                    {nearAtmViewMode === 'cards_and_table' && (
+                      <div style={{
+                        marginTop: '0.8rem',
+                        background: 'rgba(0, 0, 0, 0.35)',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                        overflow: 'hidden'
+                      }}>
+                        <div style={{
+                          padding: '0.4rem 0.8rem',
+                          background: 'rgba(255, 255, 255, 0.03)',
+                          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          color: '#94a3b8',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center'
+                        }}>
+                          <span>🎯 ATM ± {nearAtmStrikeRange} Strikes Micro Matrix (Click price to add leg)</span>
+                          <span style={{ color: '#f59e0b' }}>ATM Strike: {resolvedAtm}</span>
+                        </div>
+
+                        <div style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', textAlign: 'center' }}>
+                            <thead>
+                              <tr style={{ background: 'rgba(15, 23, 42, 0.8)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                                <th style={{ padding: '6px 8px', color: '#34d399', textAlign: 'right', width: '22%' }}>CE OI & Volume Bar</th>
+                                <th style={{ padding: '6px 8px', color: '#34d399', width: '12%' }}>CE OI Chg</th>
+                                <th style={{ padding: '6px 8px', color: '#34d399', width: '10%' }}>CE LTP</th>
+                                <th style={{ padding: '6px 12px', color: '#f59e0b', background: 'rgba(245, 158, 11, 0.12)', width: '12%' }}>STRIKE</th>
+                                <th style={{ padding: '6px 8px', color: '#fb7185', width: '10%' }}>PE LTP</th>
+                                <th style={{ padding: '6px 8px', color: '#fb7185', width: '12%' }}>PE OI Chg</th>
+                                <th style={{ padding: '6px 8px', color: '#fb7185', textAlign: 'left', width: '22%' }}>PE OI & Volume Bar</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {nearAtmWindowStrikes.map((s) => {
+                                const isAtTheMoney = Math.abs(Number(s.strike) - resolvedAtm) < 0.01;
+                                const ceOiBar = Math.min(100, Math.round(((s.CE?.oi || 0) / maxNearStrikeOi) * 100));
+                                const peOiBar = Math.min(100, Math.round(((s.PE?.oi || 0) / maxNearStrikeOi) * 100));
+
+                                return (
+                                  <tr
+                                    key={`near-atm-${s.strike}`}
+                                    style={{
+                                      borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
+                                      background: isAtTheMoney ? 'rgba(245, 158, 11, 0.18)' : 'transparent',
+                                      fontWeight: isAtTheMoney ? 800 : 400
+                                    }}
+                                  >
+                                    {/* CE OI with horizontal bar */}
+                                    <td style={{ padding: '5px 8px', textAlign: 'right' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
+                                        <div style={{ width: '60px', height: '6px', background: 'rgba(255,255,255,0.06)', borderRadius: '3px', overflow: 'hidden' }}>
+                                          <div style={{ width: `${ceOiBar}%`, height: '100%', background: '#10b981', marginLeft: 'auto' }} />
+                                        </div>
+                                        <span style={{ color: isAtTheMoney ? '#ffffff' : 'var(--text-main)', minWidth: '55px' }}>
+                                          {(s.CE?.oi || 0).toLocaleString()}
+                                        </span>
+                                      </div>
+                                    </td>
+
+                                    {/* CE OI Change */}
+                                    <td style={{ padding: '5px 8px', color: (s.CE?.oi_change || 0) >= 0 ? '#34d399' : '#fb7185' }}>
+                                      {(s.CE?.oi_change || 0) >= 0 ? '+' : ''}{(s.CE?.oi_change || 0).toLocaleString()}
+                                    </td>
+
+                                    {/* CE LTP */}
+                                    <td style={{ padding: '5px 8px' }}>
+                                      <span
+                                        className="clickable-price ask"
+                                        onClick={() => addLeg({ type: 'call', action: 'buy', strike: s.strike, premium: s.CE?.ltp || 10, quantity: 1 })}
+                                        style={{ cursor: 'pointer', padding: '2px 6px', borderRadius: '4px' }}
+                                        title="Click to add Long Call leg"
+                                      >
+                                        ₹{(s.CE?.ltp || 0).toFixed(2)}
+                                      </span>
+                                    </td>
+
+                                    {/* STRIKE */}
+                                    <td style={{
+                                      padding: '5px 12px',
+                                      background: isAtTheMoney ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'rgba(255, 255, 255, 0.04)',
+                                      color: isAtTheMoney ? '#000000' : 'var(--color-primary-500)',
+                                      fontWeight: isAtTheMoney ? 900 : 700,
+                                      borderLeft: '1px solid rgba(255,255,255,0.08)',
+                                      borderRight: '1px solid rgba(255,255,255,0.08)'
+                                    }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                                        <span>{s.strike}</span>
+                                        {isAtTheMoney && (
+                                          <span style={{
+                                            fontSize: '0.6rem',
+                                            background: '#000000',
+                                            color: '#fef08a',
+                                            padding: '1px 4px',
+                                            borderRadius: '3px',
+                                            fontWeight: 900
+                                          }}>
+                                            ATM
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
+
+                                    {/* PE LTP */}
+                                    <td style={{ padding: '5px 8px' }}>
+                                      <span
+                                        className="clickable-price ask"
+                                        onClick={() => addLeg({ type: 'put', action: 'buy', strike: s.strike, premium: s.PE?.ltp || 10, quantity: 1 })}
+                                        style={{ cursor: 'pointer', padding: '2px 6px', borderRadius: '4px' }}
+                                        title="Click to add Long Put leg"
+                                      >
+                                        ₹{(s.PE?.ltp || 0).toFixed(2)}
+                                      </span>
+                                    </td>
+
+                                    {/* PE OI Change */}
+                                    <td style={{ padding: '5px 8px', color: (s.PE?.oi_change || 0) >= 0 ? '#34d399' : '#fb7185' }}>
+                                      {(s.PE?.oi_change || 0) >= 0 ? '+' : ''}{(s.PE?.oi_change || 0).toLocaleString()}
+                                    </td>
+
+                                    {/* PE OI with horizontal bar */}
+                                    <td style={{ padding: '5px 8px', textAlign: 'left' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: '6px' }}>
+                                        <span style={{ color: isAtTheMoney ? '#ffffff' : 'var(--text-main)', minWidth: '55px' }}>
+                                          {(s.PE?.oi || 0).toLocaleString()}
+                                        </span>
+                                        <div style={{ width: '60px', height: '6px', background: 'rgba(255,255,255,0.06)', borderRadius: '3px', overflow: 'hidden' }}>
+                                          <div style={{ width: `${peOiBar}%`, height: '100%', background: '#f43f5e' }} />
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ─── FULL OPTION CHAIN TABLE ───────────────────────────────────────── */}
+                {chainTab !== 'near_atm' && (
+                  <div className="option-chain-container">
+                    <table className="option-chain-table">
+                      <thead>
+                        <tr>
+                          <th colSpan={5} className="ce-header" style={{ color: '#10b981' }}>CALL OPTIONS (CE)</th>
+                          <th style={{ background: 'rgba(255,255,255,0.05)' }}>STRIKE</th>
+                          <th colSpan={5} className="pe-header" style={{ color: '#f43f5e' }}>PUT OPTIONS (PE)</th>
+                        </tr>
+                        <tr>
+                          <th>OI</th>
+                          <th>OI Chg</th>
+                          <th>IV%</th>
+                          <th>Bid</th>
+                          <th>Ask</th>
+                        <th style={{ background: 'rgba(255,255,255,0.05)' }}>Price</th>
+                        <th>Bid</th>
+                        <th>Ask</th>
+                        <th>IV%</th>
+                        <th>OI Chg</th>
+                        <th>OI</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {optionChain.strikes.map((row) => {
+                        const isAtTheMoney = Math.abs(Number(row.strike) - resolvedAtm) < 0.01;
+                        
+                        const atmRowCellBg: React.CSSProperties = isAtTheMoney ? {
+                          background: 'rgba(245, 158, 11, 0.28)',
+                          borderTop: '2px solid #f59e0b',
+                          borderBottom: '2px solid #f59e0b',
+                          color: '#ffffff'
+                        } : {};
+
+                        return (
+                          <tr
+                            key={row.strike}
+                            id={isAtTheMoney ? 'workbench-atm-row' : undefined}
+                            className={isAtTheMoney ? 'atm-row' : ''}
+                            style={isAtTheMoney ? {
+                              background: 'linear-gradient(90deg, rgba(245, 158, 11, 0.28) 0%, rgba(251, 191, 36, 0.38) 50%, rgba(245, 158, 11, 0.28) 100%)',
+                              boxShadow: 'inset 0 0 16px rgba(245, 158, 11, 0.4)'
+                            } : {}}
+                          >
+                            <td style={{ color: isAtTheMoney ? '#ffffff' : 'var(--text-muted)', ...atmRowCellBg }}>{row.CE.oi.toLocaleString()}</td>
+                            <td style={{ color: row.CE.oi_change >= 0 ? '#10b981' : '#f43f5e', ...atmRowCellBg }}>
+                              {row.CE.oi_change.toLocaleString()}
+                            </td>
+                            <td style={atmRowCellBg}>{(row.CE.iv).toFixed(1)}%</td>
+                            <td style={atmRowCellBg}>
+                              <span className="clickable-price bid" onClick={() => addLeg({ type: 'call', action: 'sell', strike: row.strike, premium: row.CE.bid || row.CE.ltp, quantity: 1 })}>
+                                {row.CE.bid || '-'}
+                              </span>
+                            </td>
+                            <td style={atmRowCellBg}>
+                              <span className="clickable-price ask" onClick={() => addLeg({ type: 'call', action: 'buy', strike: row.strike, premium: row.CE.ask || row.CE.ltp, quantity: 1 })}>
+                                {row.CE.ask || '-'}
+                              </span>
+                            </td>
+                            
+                            <td
+                              className={`strike-cell ${isAtTheMoney ? 'atm-strike-cell' : ''}`}
+                              style={isAtTheMoney ? {
+                                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                                color: '#000000',
+                                fontWeight: 900,
+                                borderTop: '2px solid #f59e0b',
+                                borderBottom: '2px solid #f59e0b',
+                                borderLeft: '2px solid #fbbf24',
+                                borderRight: '2px solid #fbbf24',
+                                boxShadow: '0 0 16px rgba(245, 158, 11, 0.7)'
+                              } : {}}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                                <span style={{ fontSize: isAtTheMoney ? '0.95rem' : undefined, fontWeight: isAtTheMoney ? 900 : 700, color: isAtTheMoney ? '#000000' : undefined }}>
+                                  {row.strike}
+                                </span>
+                                {isAtTheMoney && (
+                                  <span style={{
+                                    fontSize: '0.62rem',
+                                    background: '#000000',
+                                    color: '#fef08a',
+                                    fontWeight: 900,
+                                    padding: '1px 5px',
+                                    borderRadius: '3px',
+                                    letterSpacing: '0.04em',
+                                    boxShadow: '0 0 6px rgba(0, 0, 0, 0.6)'
+                                  }}>
+                                    ATM
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            
+                            <td style={atmRowCellBg}>
+                              <span className="clickable-price ask" onClick={() => addLeg({ type: 'put', action: 'buy', strike: row.strike, premium: row.PE.bid || row.PE.ltp, quantity: 1 })}>
+                                {row.PE.bid || '-'}
+                              </span>
+                            </td>
+                            <td style={atmRowCellBg}>
+                              <span className="clickable-price bid" onClick={() => addLeg({ type: 'put', action: 'sell', strike: row.strike, premium: row.PE.ask || row.PE.ltp, quantity: 1 })}>
+                                {row.PE.ask || '-'}
+                              </span>
+                            </td>
+                          <td style={atmRowCellBg}>{(row.PE.iv).toFixed(1)}%</td>
+                          <td style={{ color: row.PE.oi_change >= 0 ? '#10b981' : '#f43f5e', ...atmRowCellBg }}>
                             {row.PE.oi_change.toLocaleString()}
                           </td>
-                          <td style={{ color: 'var(--text-muted)' }}>{row.PE.oi.toLocaleString()}</td>
+                          <td style={{ color: isAtTheMoney ? '#ffffff' : 'var(--text-muted)', ...atmRowCellBg }}>{row.PE.oi.toLocaleString()}</td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
               </div>
+            )}
             </div>
-          )}
+          );
+        })()}
         </main>
       )}
 
@@ -7664,6 +9095,1131 @@ export default function App() {
         </main>
       )}
 
+      {/* ─── OPTION CHAIN ANALYZER TAB (SAMEER DHARASKAR METHODOLOGY) ─── */}
+      {activeTab === 'analyzer' && (
+        <main className="analyzer-tab" style={{ padding: '1.2rem', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+          {/* HEADER & CONTROL RIBBON */}
+          <div className="card" style={{ padding: '1.2rem', background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.9))', border: '1px solid rgba(236, 72, 153, 0.3)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.2rem' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <span style={{ fontSize: '1.4rem' }}>⚡</span>
+                  <h2 style={{ fontSize: '1.35rem', fontWeight: 800, margin: 0, background: 'linear-gradient(90deg, #f472b6, #c084fc, #38bdf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                    Option Chain Analyzer
+                  </h2>
+                  <span style={{ fontSize: '0.72rem', background: 'rgba(236, 72, 153, 0.2)', color: '#f472b6', padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(236, 72, 153, 0.4)', fontWeight: 600 }}>
+                    Sameer Dharaskar Methodology
+                  </span>
+                </div>
+                <p style={{ margin: '0.3rem 0 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Real-time algorithmic delta-OI boundary tracking, boundary unwinding detection, and directional continuation ratios.
+                </p>
+              </div>
+
+              {/* ACTION BUTTONS */}
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => setAnalyzerIsPolling(!analyzerIsPolling)}
+                  style={{
+                    padding: '0.45rem 0.9rem',
+                    fontSize: '0.8rem',
+                    fontWeight: 700,
+                    borderRadius: '6px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    background: analyzerIsPolling ? '#ef4444' : '#10b981',
+                    color: '#ffffff',
+                    boxShadow: analyzerIsPolling ? '0 0 12px rgba(239, 68, 68, 0.4)' : '0 0 12px rgba(16, 185, 129, 0.4)'
+                  }}
+                >
+                  {analyzerIsPolling ? '⏸ Stop Polling' : '▶ Start Auto-Polling'}
+                </button>
+                <button
+                  onClick={() => fetchAnalyzerData()}
+                  disabled={analyzerLoading}
+                  style={{
+                    padding: '0.45rem 0.8rem',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    borderRadius: '6px',
+                    border: '1px solid rgba(255,255,255,0.15)',
+                    background: 'rgba(255,255,255,0.06)',
+                    color: '#ffffff',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem'
+                  }}
+                >
+                  <RefreshCw size={13} className={analyzerLoading ? 'animate-spin' : ''} />
+                  {analyzerLoading ? 'Fetching...' : 'Tick Now'}
+                </button>
+                <button
+                  onClick={() => setAnalyzerShowFullChainModal(true)}
+                  style={{
+                    padding: '0.45rem 0.8rem',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    borderRadius: '6px',
+                    border: '1px solid rgba(56, 189, 248, 0.4)',
+                    background: 'rgba(56, 189, 248, 0.12)',
+                    color: '#38bdf8',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem'
+                  }}
+                >
+                  <Layers size={13} /> Full Chain Matrix
+                </button>
+                <button
+                  onClick={exportAnalyzerHistory}
+                  style={{
+                    padding: '0.45rem 0.8rem',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    borderRadius: '6px',
+                    border: '1px solid rgba(168, 85, 247, 0.4)',
+                    background: 'rgba(168, 85, 247, 0.12)',
+                    color: '#c084fc',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem'
+                  }}
+                  title="Export live tick ledger to CSV"
+                >
+                  📥 Export Ledger CSV
+                </button>
+                <button
+                  onClick={dumpAnalyzerChain}
+                  style={{
+                    padding: '0.45rem 0.8rem',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    borderRadius: '6px',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem'
+                  }}
+                  title="Export raw option chain strikes dump to CSV"
+                >
+                  📄 Dump Chain CSV
+                </button>
+              </div>
+            </div>
+
+            {/* CONTROLS BAR */}
+            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end', paddingTop: '0.8rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+              {/* MODE TOGGLE */}
+              <div>
+                <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Market Mode
+                </label>
+                <div style={{ display: 'flex', background: 'rgba(0,0,0,0.3)', borderRadius: '6px', padding: '2px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  <button
+                    onClick={() => {
+                      setAnalyzerMode('Index');
+                      setAnalyzerSymbol('NIFTY');
+                      setAnalyzerExpiry('');
+                      setAnalyzerStrike(null);
+                    }}
+                    style={{
+                      padding: '0.3rem 0.8rem',
+                      fontSize: '0.78rem',
+                      fontWeight: analyzerMode === 'Index' ? 700 : 500,
+                      borderRadius: '4px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      background: analyzerMode === 'Index' ? 'linear-gradient(90deg, #ec4899, #8b5cf6)' : 'transparent',
+                      color: analyzerMode === 'Index' ? '#ffffff' : 'var(--text-muted)'
+                    }}
+                  >
+                    Index (1K)
+                  </button>
+                  <button
+                    onClick={() => {
+                      setAnalyzerMode('Stock');
+                      setAnalyzerSymbol('RELIANCE');
+                      setAnalyzerExpiry('');
+                      setAnalyzerStrike(null);
+                    }}
+                    style={{
+                      padding: '0.3rem 0.8rem',
+                      fontSize: '0.78rem',
+                      fontWeight: analyzerMode === 'Stock' ? 700 : 500,
+                      borderRadius: '4px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      background: analyzerMode === 'Stock' ? 'linear-gradient(90deg, #ec4899, #8b5cf6)' : 'transparent',
+                      color: analyzerMode === 'Stock' ? '#ffffff' : 'var(--text-muted)'
+                    }}
+                  >
+                    Stock (10s)
+                  </button>
+                </div>
+              </div>
+
+              {/* SYMBOL SELECT */}
+              <div>
+                <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Symbol
+                </label>
+                <select
+                  value={analyzerSymbol}
+                  onChange={(e) => {
+                    const newSym = e.target.value;
+                    setAnalyzerSymbol(newSym);
+                    setAnalyzerExpiry('');
+                    setAnalyzerStrike(null);
+                  }}
+                  style={{
+                    padding: '0.4rem 0.8rem',
+                    fontSize: '0.8rem',
+                    background: 'rgba(15, 23, 42, 0.8)',
+                    color: '#ffffff',
+                    border: '1px solid rgba(255,255,255,0.15)',
+                    borderRadius: '6px',
+                    minWidth: '140px'
+                  }}
+                >
+                  {analyzerMode === 'Index' ? (
+                    <>
+                      <option value="NIFTY">NIFTY</option>
+                      <option value="BANKNIFTY">BANKNIFTY</option>
+                      <option value="FINNIFTY">FINNIFTY</option>
+                      <option value="MIDCPNIFTY">MIDCPNIFTY</option>
+                      <option value="SENSEX">SENSEX</option>
+                      <option value="BANKEX">BANKEX</option>
+                    </>
+                  ) : (
+                    AVAILABLE_SYMBOLS.filter(s => !s.isIndex).map(s => (
+                      <option key={s.value} value={s.value}>{s.label}</option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              {/* EXPIRY SELECT */}
+              <div>
+                <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Expiry Date
+                </label>
+                <select
+                  value={analyzerExpiry || analyzerData?.selected_expiry || ''}
+                  onChange={(e) => {
+                    const newExp = e.target.value;
+                    setAnalyzerExpiry(newExp);
+                    fetchAnalyzerData(analyzerSymbol, newExp, analyzerStrike, analyzerMode);
+                  }}
+                  style={{
+                    padding: '0.4rem 0.8rem',
+                    fontSize: '0.8rem',
+                    background: 'rgba(15, 23, 42, 0.8)',
+                    color: '#ffffff',
+                    border: '1px solid rgba(255,255,255,0.15)',
+                    borderRadius: '6px',
+                    minWidth: '130px'
+                  }}
+                >
+                  {((analyzerData?.expiries || analyzerData?.expiry_dates) && (analyzerData.expiries || analyzerData.expiry_dates).length > 0) ? (
+                    (analyzerData.expiries || analyzerData.expiry_dates).map((exp: string, idx: number) => (
+                      <option key={exp} value={exp}>
+                        {idx === 0 ? `Current (${exp})` : idx === 1 ? `Next (${exp})` : exp}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="">Loading expiries...</option>
+                  )}
+                </select>
+              </div>
+
+              {/* TARGET STRIKE (k) */}
+              <div>
+                <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Target Strike (k)
+                </label>
+                <div style={{ display: 'flex', gap: '0.3rem' }}>
+                  <select
+                    value={analyzerStrike ?? analyzerData?.strike ?? analyzerData?.target_strike ?? ''}
+                    onChange={(e) => {
+                      const newStk = e.target.value ? Number(e.target.value) : null;
+                      setAnalyzerStrike(newStk);
+                      if (newStk !== null) {
+                        fetchAnalyzerData(analyzerSymbol, analyzerExpiry, newStk, analyzerMode);
+                      }
+                    }}
+                    style={{
+                      padding: '0.4rem 0.8rem',
+                      fontSize: '0.8rem',
+                      background: 'rgba(15, 23, 42, 0.8)',
+                      color: '#ffffff',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: '6px',
+                      minWidth: '120px'
+                    }}
+                  >
+                    {analyzerData?.strikes && analyzerData.strikes.length > 0 ? (
+                      analyzerData.strikes.map((stk: number) => (
+                        <option key={stk} value={stk}>
+                          {stk} {(analyzerData.summary?.atm_strike === stk || analyzerData.atm_strike === stk) ? '⭐ ATM' : ''}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="">Auto ATM</option>
+                    )}
+                  </select>
+                  <button
+                    onClick={() => {
+                      const atm = analyzerData?.summary?.atm_strike ?? analyzerData?.atm_strike;
+                      setAnalyzerStrike(atm ?? null);
+                      if (atm) {
+                        fetchAnalyzerData(analyzerSymbol, analyzerExpiry, atm, analyzerMode);
+                      }
+                    }}
+                    style={{
+                      padding: '0.4rem 0.6rem',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      background: 'rgba(236, 72, 153, 0.15)',
+                      color: '#f472b6',
+                      border: '1px solid rgba(236, 72, 153, 0.3)',
+                      borderRadius: '6px',
+                      cursor: 'pointer'
+                    }}
+                    title="Reset to ATM Strike"
+                  >
+                    🎯 ATM
+                  </button>
+                </div>
+              </div>
+
+              {/* POLLING INTERVAL */}
+              <div>
+                <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Refresh Interval
+                </label>
+                <select
+                  value={analyzerInterval}
+                  onChange={(e) => setAnalyzerInterval(Number(e.target.value))}
+                  style={{
+                    padding: '0.4rem 0.8rem',
+                    fontSize: '0.8rem',
+                    background: 'rgba(15, 23, 42, 0.8)',
+                    color: '#ffffff',
+                    border: '1px solid rgba(255,255,255,0.15)',
+                    borderRadius: '6px'
+                  }}
+                >
+                  <option value={15}>15 sec (Ultra fast)</option>
+                  <option value={30}>30 sec (Fast)</option>
+                  <option value={60}>60 sec (Standard)</option>
+                  <option value={120}>2 min</option>
+                  <option value={300}>5 min</option>
+                </select>
+              </div>
+
+              {/* STATUS BADGE */}
+              <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                  Exchange Time: <strong style={{ color: '#ffffff' }}>{analyzerData?.timestamp || 'N/A'}</strong>
+                </span>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  Recorded Ticks: <strong style={{ color: '#38bdf8' }}>{analyzerData?.history?.length || 0}</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {analyzerError && (
+            <div style={{ padding: '0.8rem 1.2rem', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', borderRadius: '8px', color: '#fca5a5', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <AlertTriangle size={16} />
+              {analyzerError}
+            </div>
+          )}
+
+          {/* SPOT & UNDERLYING METRICS STRIP */}
+          {analyzerData && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.8rem' }}>
+              {/* SPOT PRICE */}
+              <div className="card" style={{ padding: '1rem', background: 'rgba(15, 23, 42, 0.7)' }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Spot Price / Underlying</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#facc15', margin: '0.2rem 0' }}>
+                  ₹{analyzerData.underlying_value?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || 'N/A'}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  ATM Strike: <strong style={{ color: '#ffffff' }}>{analyzerData.summary?.atm_strike}</strong>
+                </div>
+              </div>
+
+              {/* TARGET STRIKE INFO */}
+              <div className="card" style={{ padding: '1rem', background: 'rgba(15, 23, 42, 0.7)' }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Target Strike (k)</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#38bdf8', margin: '0.2rem 0' }}>
+                  {analyzerData.strike}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  Scale: <strong style={{ color: '#ffffff' }}>{analyzerData.summary?.unit_scale}</strong>
+                </div>
+              </div>
+
+              {/* OVERALL BIAS */}
+              <div className="card" style={{ padding: '1rem', background: 'rgba(15, 23, 42, 0.7)', borderLeft: `4px solid ${analyzerData.summary?.bias_direction === 'BULLISH' ? '#10b981' : analyzerData.summary?.bias_direction === 'BEARISH' ? '#ef4444' : '#facc15'}` }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Overall OI Bias</div>
+                <div style={{ fontSize: '1.25rem', fontWeight: 800, color: analyzerData.summary?.bias_direction === 'BULLISH' ? '#10b981' : analyzerData.summary?.bias_direction === 'BEARISH' ? '#ef4444' : '#facc15', margin: '0.2rem 0' }}>
+                  {analyzerData.summary?.bias_direction === 'BULLISH' ? '🐂 BULLISH' : analyzerData.summary?.bias_direction === 'BEARISH' ? '🐻 BEARISH' : '⚖️ NEUTRAL'}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  Diff: <strong style={{ color: analyzerData.summary?.difference < 0 ? '#10b981' : '#ef4444' }}>{analyzerData.summary?.difference}</strong>
+                </div>
+              </div>
+
+              {/* PCR */}
+              <div className="card" style={{ padding: '1rem', background: 'rgba(15, 23, 42, 0.7)' }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Option PCR</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: (analyzerData.summary?.pcr ?? 1) >= 1 ? '#10b981' : '#ef4444', margin: '0.2rem 0' }}>
+                  {analyzerData.summary?.pcr?.toFixed(2) ?? 'N/A'}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  Max Pain: <strong style={{ color: '#ffffff' }}>{analyzerData.summary?.max_pain}</strong>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 8-KPI EXECUTIVE DIAGNOSTIC MATRIX */}
+          {analyzerData?.metrics && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0.8rem' }}>
+              {/* CALL SUM (k, k+1, k+2) */}
+              <div className="card" style={{ padding: '1rem', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#fca5a5', textTransform: 'uppercase' }}>Call Sum (k..k+2)</span>
+                  <span style={{ fontSize: '0.68rem', background: 'rgba(239,68,68,0.2)', color: '#f87171', padding: '1px 6px', borderRadius: '4px' }}>Resistance</span>
+                </div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#ef4444', margin: '0.3rem 0' }}>
+                  {analyzerData.metrics.call_sum}
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                  ΔOI Call accumulation across strikes k, k+1, k+2
+                </div>
+              </div>
+
+              {/* PUT SUM (k, k+1, k+2) */}
+              <div className="card" style={{ padding: '1rem', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#86efac', textTransform: 'uppercase' }}>Put Sum (k..k+2)</span>
+                  <span style={{ fontSize: '0.68rem', background: 'rgba(16,185,129,0.2)', color: '#4ade80', padding: '1px 6px', borderRadius: '4px' }}>Support</span>
+                </div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#10b981', margin: '0.3rem 0' }}>
+                  {analyzerData.metrics.put_sum}
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                  ΔOI Put accumulation across strikes k, k+1, k+2
+                </div>
+              </div>
+
+              {/* CALL BOUNDARY (k+2) */}
+              <div className="card" style={{ padding: '1rem', background: 'rgba(15, 23, 42, 0.7)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#fca5a5', textTransform: 'uppercase' }}>Call Boundary (k+2)</span>
+                  <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Strike: {analyzerData.metrics.call_boundary_strike}</span>
+                </div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: analyzerData.metrics.call_boundary <= 0 ? '#10b981' : '#f87171', margin: '0.3rem 0' }}>
+                  {analyzerData.metrics.call_boundary}
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                  {analyzerData.metrics.call_boundary <= 0 ? '🟢 Unwinding / Squeeze trigger' : '🔴 Call writing active'}
+                </div>
+              </div>
+
+              {/* PUT BOUNDARY (k) */}
+              <div className="card" style={{ padding: '1rem', background: 'rgba(15, 23, 42, 0.7)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#86efac', textTransform: 'uppercase' }}>Put Boundary (k)</span>
+                  <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Strike: {analyzerData.metrics.put_boundary_strike}</span>
+                </div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: analyzerData.metrics.put_boundary <= 0 ? '#ef4444' : '#4ade80', margin: '0.3rem 0' }}>
+                  {analyzerData.metrics.put_boundary}
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                  {analyzerData.metrics.put_boundary <= 0 ? '🔴 Unwinding / Breakdown trigger' : '🟢 Put writing active'}
+                </div>
+              </div>
+
+              {/* UPPER BOUNDARIES (RESISTANCE) */}
+              <div className="card" style={{ padding: '1rem', background: 'rgba(15, 23, 42, 0.7)' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#f87171', textTransform: 'uppercase' }}>Upper Boundaries (Resistance)</div>
+                <div style={{ display: 'flex', gap: '0.8rem', marginTop: '0.4rem' }}>
+                  <div>
+                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>R1 (k+2):</span>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#ffffff' }}>{analyzerData.metrics.upper_boundary_1}</div>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>R2 (k+3):</span>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#ffffff' }}>{analyzerData.metrics.upper_boundary_2}</div>
+                  </div>
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+                  Breakout confirmation above {analyzerData.metrics.upper_boundary_2}
+                </div>
+              </div>
+
+              {/* LOWER BOUNDARIES (SUPPORT) */}
+              <div className="card" style={{ padding: '1rem', background: 'rgba(15, 23, 42, 0.7)' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#4ade80', textTransform: 'uppercase' }}>Lower Boundaries (Support)</div>
+                <div style={{ display: 'flex', gap: '0.8rem', marginTop: '0.4rem' }}>
+                  <div>
+                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>S1 (k):</span>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#ffffff' }}>{analyzerData.metrics.lower_boundary_1}</div>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>S2 (k-1):</span>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#ffffff' }}>{analyzerData.metrics.lower_boundary_2}</div>
+                  </div>
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+                  Breakdown confirmation below {analyzerData.metrics.lower_boundary_2}
+                </div>
+              </div>
+
+              {/* CALL EXITS SIGNAL */}
+              <div className="card" style={{ padding: '1rem', background: analyzerData.metrics.call_exits ? 'rgba(16, 185, 129, 0.15)' : 'rgba(15, 23, 42, 0.7)', border: analyzerData.metrics.call_exits ? '1px solid #10b981' : '1px solid rgba(255,255,255,0.1)' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: analyzerData.metrics.call_exits ? '#4ade80' : 'var(--text-muted)', textTransform: 'uppercase' }}>
+                  Call Exits (Short Squeeze)
+                </div>
+                <div style={{ fontSize: '1.15rem', fontWeight: 800, color: analyzerData.metrics.call_exits ? '#10b981' : 'var(--text-muted)', margin: '0.3rem 0' }}>
+                  {analyzerData.metrics.call_exits ? '🚀 SQUEEZE ACTIVE' : 'INACTIVE'}
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                  {analyzerData.metrics.call_exits ? 'Call writers covering/exiting at k+2 or total sum' : 'Call resistance holding firm'}
+                </div>
+              </div>
+
+              {/* PUT EXITS SIGNAL */}
+              <div className="card" style={{ padding: '1rem', background: analyzerData.metrics.put_exits ? 'rgba(239, 68, 68, 0.15)' : 'rgba(15, 23, 42, 0.7)', border: analyzerData.metrics.put_exits ? '1px solid #ef4444' : '1px solid rgba(255,255,255,0.1)' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: analyzerData.metrics.put_exits ? '#f87171' : 'var(--text-muted)', textTransform: 'uppercase' }}>
+                  Put Exits (Long Unwinding)
+                </div>
+                <div style={{ fontSize: '1.15rem', fontWeight: 800, color: analyzerData.metrics.put_exits ? '#ef4444' : 'var(--text-muted)', margin: '0.3rem 0' }}>
+                  {analyzerData.metrics.put_exits ? '⚠️ UNWINDING ACTIVE' : 'INACTIVE'}
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                  {analyzerData.metrics.put_exits ? 'Put writers covering/exiting at k or total sum' : 'Put support holding firm'}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* MULTI-LINE TIME SERIES CHART */}
+          {analyzerData?.history && analyzerData.history.length > 0 && (
+            <div className="card" style={{ padding: '1.2rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+                  <TrendingUp size={18} style={{ color: '#ec4899' }} /> Live Multi-Series Trend Visualizer
+                </h3>
+                <div style={{ display: 'flex', gap: '1rem', fontSize: '0.78rem' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: '#facc15' }}>
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#facc15' }}></span> Spot Price
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: '#ef4444' }}>
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444' }}></span> Call Sum
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: '#10b981' }}>
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#10b981' }}></span> Put Sum
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: '#a855f7' }}>
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#a855f7' }}></span> Difference
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ width: '100%', height: 340 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={analyzerData.history} margin={{ top: 10, right: 30, left: 10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                    <XAxis dataKey="time" stroke="var(--text-muted)" fontSize={11} />
+                    <YAxis yAxisId="spot" orientation="left" stroke="#facc15" fontSize={11} domain={['auto', 'auto']} />
+                    <YAxis yAxisId="oi" orientation="right" stroke="#a855f7" fontSize={11} domain={['auto', 'auto']} />
+                    <Tooltip
+                      contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px', fontSize: '0.78rem' }}
+                      labelStyle={{ color: '#38bdf8', fontWeight: 700 }}
+                    />
+                    <Line yAxisId="spot" type="monotone" dataKey="value" stroke="#facc15" strokeWidth={2} dot={{ r: 2 }} name="Spot Price" />
+                    <Line yAxisId="oi" type="monotone" dataKey="call_sum" stroke="#ef4444" strokeWidth={2} dot={{ r: 2 }} name="Call Sum" />
+                    <Line yAxisId="oi" type="monotone" dataKey="put_sum" stroke="#10b981" strokeWidth={2} dot={{ r: 2 }} name="Put Sum" />
+                    <Line yAxisId="oi" type="monotone" dataKey="difference" stroke="#a855f7" strokeWidth={2} strokeDasharray="4 4" dot={{ r: 2 }} name="Difference" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {/* REAL-TIME DHARASKAR TIME-SERIES LEDGER TABLE */}
+          <div className="card" style={{ padding: '1.2rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <div>
+                <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+                  <BarChart2 size={18} style={{ color: '#38bdf8' }} /> Dharaskar Time-Series Ledger
+                </h3>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  Color code: Green = Bullish / Call Unwinding / Put Writing | Red = Bearish / Call Writing / Put Unwinding
+                </span>
+              </div>
+              <span style={{ fontSize: '0.75rem', color: '#94a3b8', background: 'rgba(255,255,255,0.05)', padding: '3px 8px', borderRadius: '4px' }}>
+                {analyzerData?.history?.length || 0} ticks recorded
+              </span>
+            </div>
+
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', textAlign: 'center' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.02)' }}>
+                    <th style={{ padding: '0.6rem 0.5rem', textAlign: 'left' }}>Time</th>
+                    <th style={{ padding: '0.6rem 0.5rem' }}>Spot / Value</th>
+                    <th style={{ padding: '0.6rem 0.5rem' }}>Call Sum (k..k+2)</th>
+                    <th style={{ padding: '0.6rem 0.5rem' }}>Put Sum (k..k+2)</th>
+                    <th style={{ padding: '0.6rem 0.5rem' }}>Difference</th>
+                    <th style={{ padding: '0.6rem 0.5rem' }}>Call Bound (k+2)</th>
+                    <th style={{ padding: '0.6rem 0.5rem' }}>Put Bound (k)</th>
+                    <th style={{ padding: '0.6rem 0.5rem' }}>Call Exits</th>
+                    <th style={{ padding: '0.6rem 0.5rem' }}>Put Exits</th>
+                    <th style={{ padding: '0.6rem 0.5rem' }}>Call ITM (k+4)</th>
+                    <th style={{ padding: '0.6rem 0.5rem' }}>Put ITM (k-2)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {!analyzerData?.history || analyzerData.history.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} style={{ padding: '2rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+                        No live ticks recorded yet. Start auto-polling or click "Tick Now" to fetch live NSE option chain metrics.
+                      </td>
+                    </tr>
+                  ) : (
+                    analyzerData.history.slice().reverse().map((row: any, idx: number, arr: any[]) => {
+                      const prevRow = idx < arr.length - 1 ? arr[idx + 1] : null;
+
+                      // Dharaskar color logic:
+                      // Value: Green if >= prev, Red if <
+                      const spotColor = !prevRow ? '#ffffff' : row.value >= prevRow.value ? '#4ade80' : '#f87171';
+
+                      // Call Sum: Red if >= prev (Call resistance building), Green if < prev (Call covering)
+                      const callSumColor = !prevRow ? '#ffffff' : row.call_sum >= prevRow.call_sum ? '#f87171' : '#4ade80';
+
+                      // Put Sum: Green if >= prev (Put support building), Red if < prev (Put unwinding)
+                      const putSumColor = !prevRow ? '#ffffff' : row.put_sum >= prevRow.put_sum ? '#4ade80' : '#f87171';
+
+                      // Difference: Red if > 0 (Call dominant), Green if < 0 (Put dominant)
+                      const diffColor = row.difference < 0 ? '#4ade80' : row.difference > 0 ? '#f87171' : '#ffffff';
+
+                      // Call Boundary: Red if >= prev, Green if <
+                      const callBoundColor = !prevRow ? '#ffffff' : row.call_boundary >= prevRow.call_boundary ? '#f87171' : '#4ade80';
+
+                      // Put Boundary: Green if >= prev, Red if <
+                      const putBoundColor = !prevRow ? '#ffffff' : row.put_boundary >= prevRow.put_boundary ? '#4ade80' : '#f87171';
+
+                      return (
+                        <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', background: idx === 0 ? 'rgba(236, 72, 153, 0.05)' : undefined }}>
+                          <td style={{ padding: '0.6rem 0.5rem', textAlign: 'left', fontWeight: 600, color: '#38bdf8' }}>
+                            {row.time} {idx === 0 ? '⚡' : ''}
+                          </td>
+                          <td style={{ padding: '0.6rem 0.5rem', fontWeight: 700, color: spotColor }}>
+                            {row.value}
+                          </td>
+                          <td style={{ padding: '0.6rem 0.5rem', fontWeight: 600, color: callSumColor, background: row.call_sum >= (prevRow?.call_sum ?? 0) ? 'rgba(239,68,68,0.06)' : 'rgba(16,185,129,0.06)' }}>
+                            {row.call_sum}
+                          </td>
+                          <td style={{ padding: '0.6rem 0.5rem', fontWeight: 600, color: putSumColor, background: row.put_sum >= (prevRow?.put_sum ?? 0) ? 'rgba(16,185,129,0.06)' : 'rgba(239,68,68,0.06)' }}>
+                            {row.put_sum}
+                          </td>
+                          <td style={{ padding: '0.6rem 0.5rem', fontWeight: 700, color: diffColor }}>
+                            {row.difference}
+                          </td>
+                          <td style={{ padding: '0.6rem 0.5rem', fontWeight: 600, color: callBoundColor }}>
+                            {row.call_boundary}
+                          </td>
+                          <td style={{ padding: '0.6rem 0.5rem', fontWeight: 600, color: putBoundColor }}>
+                            {row.put_boundary}
+                          </td>
+                          <td style={{ padding: '0.6rem 0.5rem' }}>
+                            {row.call_exits ? (
+                              <span style={{ background: 'rgba(16,185,129,0.2)', color: '#4ade80', padding: '2px 6px', borderRadius: '4px', fontWeight: 700, fontSize: '0.7rem' }}>
+                                🚀 EXIT
+                              </span>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>-</span>
+                            )}
+                          </td>
+                          <td style={{ padding: '0.6rem 0.5rem' }}>
+                            {row.put_exits ? (
+                              <span style={{ background: 'rgba(239,68,68,0.2)', color: '#f87171', padding: '2px 6px', borderRadius: '4px', fontWeight: 700, fontSize: '0.7rem' }}>
+                                ⚠️ EXIT
+                              </span>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>-</span>
+                            )}
+                          </td>
+                          <td style={{ padding: '0.6rem 0.5rem', color: row.call_itm_signal ? '#4ade80' : 'var(--text-muted)', fontWeight: 600 }}>
+                            {row.call_itm} {row.call_itm_signal ? '▲' : ''}
+                          </td>
+                          <td style={{ padding: '0.6rem 0.5rem', color: row.put_itm_signal ? '#f87171' : 'var(--text-muted)', fontWeight: 600 }}>
+                            {row.put_itm} {row.put_itm_signal ? '▼' : ''}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* LIVE OPTION CHAIN STRIKE MATRIX DIRECTLY IN ANALYZER TAB */}
+          {analyzerData?.full_chain && analyzerData.full_chain.length > 0 && (() => {
+            const rawAtm = Number(analyzerData.summary?.atm_strike ?? analyzerData.atm_strike ?? 0);
+            const resolvedAtm = rawAtm > 0 ? rawAtm : (
+              analyzerData.full_chain.reduce((prev: any, curr: any) => {
+                const pStrike = Number(prev.strike ?? prev.strikePrice ?? 0);
+                const cStrike = Number(curr.strike ?? curr.strikePrice ?? 0);
+                const spot = Number(analyzerData.underlying_value || 0);
+                return Math.abs(cStrike - spot) < Math.abs(pStrike - spot) ? curr : prev;
+              }).strike || 0
+            );
+            const targetStrikeVal = Number(analyzerData.strike ?? analyzerData.target_strike ?? 0);
+
+            return (
+              <div className="card" style={{ padding: '1.2rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <div>
+                    <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+                      <Layers size={18} style={{ color: '#f59e0b' }} /> {analyzerSymbol} Option Chain Strike Matrix ({analyzerExpiry || 'Current Expiry'})
+                    </h3>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      Spot: <strong style={{ color: '#facc15' }}>₹{analyzerData?.underlying_value?.toLocaleString()}</strong> | ATM Strike: <strong style={{ color: '#f59e0b' }}>{resolvedAtm}</strong> | Target: <strong style={{ color: '#38bdf8' }}>{analyzerData?.strike}</strong>
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                    <button
+                      onClick={() => {
+                        const el = document.getElementById('analyzer-tab-atm-row');
+                        if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                      }}
+                      style={{
+                        padding: '4px 12px',
+                        fontSize: '0.75rem',
+                        fontWeight: 800,
+                        background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                        color: '#000000',
+                        border: 'none',
+                        borderRadius: '5px',
+                        cursor: 'pointer',
+                        boxShadow: '0 0 10px rgba(245, 158, 11, 0.5)'
+                      }}
+                      title="Scroll table to At-The-Money strike"
+                    >
+                      🎯 Jump to ATM ({resolvedAtm})
+                    </button>
+                    <button
+                      onClick={() => setAnalyzerShowFullChainModal(true)}
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        borderRadius: '5px',
+                        border: '1px solid rgba(56, 189, 248, 0.4)',
+                        background: 'rgba(56, 189, 248, 0.12)',
+                        color: '#38bdf8',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      ⛶ Fullscreen Matrix
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ maxHeight: '460px', overflowY: 'auto' }}>
+                  <table className="full-chain-matrix-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'center' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.15)', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.03)', position: 'sticky', top: 0, zIndex: 10 }}>
+                        <th colSpan={3} style={{ padding: '0.5rem', color: '#f87171', borderRight: '1px solid rgba(255,255,255,0.1)', background: '#0f172a' }}>CALLS (CE)</th>
+                        <th style={{ padding: '0.5rem', color: '#facc15', background: '#0f172a' }}>STRIKE</th>
+                        <th colSpan={3} style={{ padding: '0.5rem', color: '#4ade80', borderLeft: '1px solid rgba(255,255,255,0.1)', background: '#0f172a' }}>PUTS (PE)</th>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-muted)', fontSize: '0.75rem', position: 'sticky', top: '33px', zIndex: 10, background: '#0f172a' }}>
+                        <th style={{ padding: '0.4rem' }}>ΔOI</th>
+                        <th style={{ padding: '0.4rem' }}>OI</th>
+                        <th style={{ padding: '0.4rem', borderRight: '1px solid rgba(255,255,255,0.1)' }}>LTP</th>
+                        <th style={{ padding: '0.4rem' }}>Strike Price</th>
+                        <th style={{ padding: '0.4rem', borderLeft: '1px solid rgba(255,255,255,0.1)' }}>LTP</th>
+                        <th style={{ padding: '0.4rem' }}>OI</th>
+                        <th style={{ padding: '0.4rem' }}>ΔOI</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {analyzerData.full_chain.map((s: any) => {
+                        const strike = Number(s.strike ?? s.strikePrice ?? 0);
+                        const isAtm = resolvedAtm > 0 && Math.abs(strike - resolvedAtm) < 0.01;
+                        const isTarget = targetStrikeVal > 0 && Math.abs(strike - targetStrikeVal) < 0.01;
+                        const ce = s.CE || {};
+                        const pe = s.PE || {};
+                        const ce_oi_change = ce.oi_change ?? ce.changeinOpenInterest ?? 0;
+                        const ce_oi = ce.oi ?? ce.openInterest ?? 0;
+                        const ce_ltp = ce.ltp ?? ce.lastPrice ?? 0;
+                        const pe_oi_change = pe.oi_change ?? pe.changeinOpenInterest ?? 0;
+                        const pe_oi = pe.oi ?? pe.openInterest ?? 0;
+                        const pe_ltp = pe.ltp ?? pe.lastPrice ?? 0;
+
+                        const rowBg = isAtm
+                          ? 'linear-gradient(90deg, rgba(245, 158, 11, 0.28) 0%, rgba(251, 191, 36, 0.38) 50%, rgba(245, 158, 11, 0.28) 100%)'
+                          : isTarget
+                          ? 'rgba(236, 72, 153, 0.2)'
+                          : undefined;
+
+                        const rowBorder = isAtm
+                          ? '2px solid #f59e0b'
+                          : isTarget
+                          ? '2px solid #ec4899'
+                          : '1px solid rgba(255,255,255,0.03)';
+
+                        const atmCellBg = isAtm ? 'rgba(245, 158, 11, 0.25)' : undefined;
+
+                        return (
+                          <tr
+                            key={strike}
+                            id={isAtm ? 'analyzer-tab-atm-row' : undefined}
+                            className={isAtm ? 'atm-row' : ''}
+                            style={{
+                              borderTop: rowBorder,
+                              borderBottom: rowBorder,
+                              background: rowBg,
+                              boxShadow: isAtm ? 'inset 0 0 16px rgba(245, 158, 11, 0.4)' : undefined
+                            }}
+                          >
+                            <td style={{ padding: '0.45rem', color: ce_oi_change >= 0 ? '#f87171' : '#4ade80', background: atmCellBg, fontWeight: isAtm ? 700 : undefined }}>
+                              {Number(ce_oi_change).toLocaleString()}
+                            </td>
+                            <td style={{ padding: '0.45rem', color: isAtm ? '#ffffff' : undefined, background: atmCellBg, fontWeight: isAtm ? 700 : undefined }}>
+                              {Number(ce_oi).toLocaleString()}
+                            </td>
+                            <td style={{ padding: '0.45rem', borderRight: '1px solid rgba(255,255,255,0.1)', fontWeight: 600, color: isAtm ? '#ffffff' : undefined, background: atmCellBg }}>
+                              ₹{Number(ce_ltp).toFixed(2)}
+                            </td>
+                            <td
+                              className={isAtm ? 'strike-cell atm-strike-cell atm-matrix-strike' : 'strike-cell'}
+                              style={isAtm ? {
+                                padding: '0.45rem',
+                                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                                color: '#000000',
+                                fontWeight: 900,
+                                borderLeft: '2px solid #fbbf24',
+                                borderRight: '2px solid #fbbf24',
+                                boxShadow: '0 0 16px rgba(245, 158, 11, 0.7)'
+                              } : {
+                                padding: '0.45rem',
+                                fontWeight: 800,
+                                color: isTarget ? '#f472b6' : '#ffffff',
+                                background: isTarget ? 'rgba(236, 72, 153, 0.3)' : undefined
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                                <span style={{ fontSize: isAtm ? '0.95rem' : undefined, fontWeight: isAtm ? 900 : 800, color: isAtm ? '#000000' : undefined }}>
+                                  {strike}
+                                </span>
+                                {isAtm && (
+                                  <span style={{
+                                    fontSize: '0.62rem',
+                                    background: '#000000',
+                                    color: '#fef08a',
+                                    fontWeight: 900,
+                                    padding: '1px 5px',
+                                    borderRadius: '3px',
+                                    letterSpacing: '0.04em',
+                                    boxShadow: '0 0 6px rgba(0,0,0,0.6)'
+                                  }}>
+                                    ⭐ ATM
+                                  </span>
+                                )}
+                                {isTarget && (
+                                  <span style={{
+                                    fontSize: '0.62rem',
+                                    background: '#ec4899',
+                                    color: '#ffffff',
+                                    fontWeight: 800,
+                                    padding: '1px 5px',
+                                    borderRadius: '3px',
+                                    boxShadow: '0 0 6px rgba(236, 72, 153, 0.6)'
+                                  }}>
+                                    🎯 {isAtm ? '(k)' : 'TARGET (k)'}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td style={{ padding: '0.45rem', borderLeft: '1px solid rgba(255,255,255,0.1)', fontWeight: 600, color: isAtm ? '#ffffff' : undefined, background: atmCellBg }}>
+                              ₹{Number(pe_ltp).toFixed(2)}
+                            </td>
+                            <td style={{ padding: '0.45rem', color: isAtm ? '#ffffff' : undefined, background: atmCellBg, fontWeight: isAtm ? 700 : undefined }}>
+                              {Number(pe_oi).toLocaleString()}
+                            </td>
+                            <td style={{ padding: '0.45rem', color: pe_oi_change >= 0 ? '#4ade80' : '#f87171', background: atmCellBg, fontWeight: isAtm ? 700 : undefined }}>
+                              {Number(pe_oi_change).toLocaleString()}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
+        </main>
+      )}
+
+      {/* FULL OPTION CHAIN MODAL */}
+      {analyzerShowFullChainModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.85)',
+          backdropFilter: 'blur(8px)',
+          zIndex: 9999,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: '1.5rem'
+        }}>
+          <div style={{
+            background: '#0a0f1e',
+            border: '1px solid #1e2d4a',
+            borderRadius: '12px',
+            width: '100%',
+            maxWidth: '1200px',
+            height: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
+            overflow: 'hidden'
+          }}>
+            {/* MODAL HEADER */}
+            <div style={{
+              padding: '1rem 1.4rem',
+              borderBottom: '1px solid #1e2d4a',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: '#111827'
+            }}>
+              <div>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#38bdf8', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Layers size={18} /> {analyzerSymbol} Option Chain Strike Matrix ({analyzerExpiry || 'Current Expiry'})
+                </h3>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  Underlying Spot: <strong style={{ color: '#facc15' }}>₹{analyzerData?.underlying_value?.toLocaleString()}</strong> | ATM Strike: <strong style={{ color: '#f59e0b' }}>{analyzerData?.summary?.atm_strike ?? analyzerData?.atm_strike}</strong> | Target: <strong style={{ color: '#38bdf8' }}>{analyzerData?.strike}</strong>
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                <button
+                  onClick={() => {
+                    const el = document.getElementById('analyzer-matrix-atm-row');
+                    if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                  }}
+                  style={{
+                    padding: '4px 12px',
+                    fontSize: '0.75rem',
+                    fontWeight: 800,
+                    background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                    color: '#000000',
+                    border: 'none',
+                    borderRadius: '5px',
+                    cursor: 'pointer',
+                    boxShadow: '0 0 10px rgba(245, 158, 11, 0.5)'
+                  }}
+                  title="Scroll modal to At-The-Money strike"
+                >
+                  🎯 Jump to ATM ({analyzerData?.summary?.atm_strike ?? analyzerData?.atm_strike})
+                </button>
+                <button
+                  onClick={() => setAnalyzerShowFullChainModal(false)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                    fontSize: '1.4rem',
+                    fontWeight: 700,
+                    lineHeight: 1
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* MODAL BODY */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '1rem 1.4rem' }}>
+              <table className="full-chain-matrix-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'center' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.15)', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.03)', position: 'sticky', top: 0, zIndex: 10 }}>
+                    <th colSpan={3} style={{ padding: '0.5rem', color: '#f87171', borderRight: '1px solid rgba(255,255,255,0.1)', background: '#111827' }}>CALLS (CE)</th>
+                    <th style={{ padding: '0.5rem', color: '#facc15', background: '#111827' }}>STRIKE</th>
+                    <th colSpan={3} style={{ padding: '0.5rem', color: '#4ade80', borderLeft: '1px solid rgba(255,255,255,0.1)', background: '#111827' }}>PUTS (PE)</th>
+                  </tr>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-muted)', fontSize: '0.75rem', position: 'sticky', top: '33px', zIndex: 10, background: '#111827' }}>
+                    <th style={{ padding: '0.4rem' }}>ΔOI</th>
+                    <th style={{ padding: '0.4rem' }}>OI</th>
+                    <th style={{ padding: '0.4rem', borderRight: '1px solid rgba(255,255,255,0.1)' }}>LTP</th>
+                    <th style={{ padding: '0.4rem' }}>Strike Price</th>
+                    <th style={{ padding: '0.4rem', borderLeft: '1px solid rgba(255,255,255,0.1)' }}>LTP</th>
+                    <th style={{ padding: '0.4rem' }}>OI</th>
+                    <th style={{ padding: '0.4rem' }}>ΔOI</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {analyzerData?.full_chain && analyzerData.full_chain.length > 0 ? (() => {
+                    const rawAtm = Number(analyzerData.summary?.atm_strike ?? analyzerData.atm_strike ?? 0);
+                    const resolvedAtm = rawAtm > 0 ? rawAtm : (
+                      analyzerData.full_chain.reduce((prev: any, curr: any) => {
+                        const pStrike = Number(prev.strike ?? prev.strikePrice ?? 0);
+                        const cStrike = Number(curr.strike ?? curr.strikePrice ?? 0);
+                        const spot = Number(analyzerData.underlying_value || 0);
+                        return Math.abs(cStrike - spot) < Math.abs(pStrike - spot) ? curr : prev;
+                      }).strike || 0
+                    );
+                    const targetStrikeVal = Number(analyzerData.strike ?? analyzerData.target_strike ?? 0);
+
+                    return analyzerData.full_chain.map((s: any) => {
+                      const strike = Number(s.strike ?? s.strikePrice ?? 0);
+                      const isAtm = resolvedAtm > 0 && Math.abs(strike - resolvedAtm) < 0.01;
+                      const isTarget = targetStrikeVal > 0 && Math.abs(strike - targetStrikeVal) < 0.01;
+                      const ce = s.CE || {};
+                      const pe = s.PE || {};
+                      const ce_oi_change = ce.oi_change ?? ce.changeinOpenInterest ?? 0;
+                      const ce_oi = ce.oi ?? ce.openInterest ?? 0;
+                      const ce_ltp = ce.ltp ?? ce.lastPrice ?? 0;
+                      const pe_oi_change = pe.oi_change ?? pe.changeinOpenInterest ?? 0;
+                      const pe_oi = pe.oi ?? pe.openInterest ?? 0;
+                      const pe_ltp = pe.ltp ?? pe.lastPrice ?? 0;
+
+                      const rowBg = isAtm
+                        ? 'linear-gradient(90deg, rgba(245, 158, 11, 0.28) 0%, rgba(251, 191, 36, 0.38) 50%, rgba(245, 158, 11, 0.28) 100%)'
+                        : isTarget
+                        ? 'rgba(236, 72, 153, 0.2)'
+                        : undefined;
+
+                      const rowBorder = isAtm
+                        ? '2px solid #f59e0b'
+                        : isTarget
+                        ? '2px solid #ec4899'
+                        : '1px solid rgba(255,255,255,0.03)';
+
+                      const atmCellBg = isAtm ? 'rgba(245, 158, 11, 0.25)' : undefined;
+
+                      return (
+                        <tr
+                          key={strike}
+                          id={isAtm ? 'analyzer-matrix-atm-row' : undefined}
+                          className={isAtm ? 'atm-row' : ''}
+                          style={{
+                            borderTop: rowBorder,
+                            borderBottom: rowBorder,
+                            background: rowBg,
+                            boxShadow: isAtm ? 'inset 0 0 16px rgba(245, 158, 11, 0.4)' : undefined
+                          }}
+                        >
+                          <td style={{ padding: '0.45rem', color: ce_oi_change >= 0 ? '#f87171' : '#4ade80', background: atmCellBg, fontWeight: isAtm ? 700 : undefined }}>
+                            {Number(ce_oi_change).toLocaleString()}
+                          </td>
+                          <td style={{ padding: '0.45rem', color: isAtm ? '#ffffff' : undefined, background: atmCellBg, fontWeight: isAtm ? 700 : undefined }}>
+                            {Number(ce_oi).toLocaleString()}
+                          </td>
+                          <td style={{ padding: '0.45rem', borderRight: '1px solid rgba(255,255,255,0.1)', fontWeight: 600, color: isAtm ? '#ffffff' : undefined, background: atmCellBg }}>
+                            ₹{Number(ce_ltp).toFixed(2)}
+                          </td>
+                          <td
+                            className={isAtm ? 'strike-cell atm-strike-cell atm-matrix-strike' : 'strike-cell'}
+                            style={isAtm ? {
+                              padding: '0.45rem',
+                              background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                              color: '#000000',
+                              fontWeight: 900,
+                              borderLeft: '2px solid #fbbf24',
+                              borderRight: '2px solid #fbbf24',
+                              boxShadow: '0 0 16px rgba(245, 158, 11, 0.7)'
+                            } : {
+                              padding: '0.45rem',
+                              fontWeight: 800,
+                              color: isTarget ? '#f472b6' : '#ffffff',
+                              background: isTarget ? 'rgba(236, 72, 153, 0.3)' : undefined
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                              <span style={{ fontSize: isAtm ? '0.95rem' : undefined, fontWeight: isAtm ? 900 : 800, color: isAtm ? '#000000' : undefined }}>
+                                {strike}
+                              </span>
+                              {isAtm && (
+                                <span style={{
+                                  fontSize: '0.62rem',
+                                  background: '#000000',
+                                  color: '#fef08a',
+                                  fontWeight: 900,
+                                  padding: '1px 5px',
+                                  borderRadius: '3px',
+                                  letterSpacing: '0.04em',
+                                  boxShadow: '0 0 6px rgba(0,0,0,0.6)'
+                                }}>
+                                  ⭐ ATM
+                                </span>
+                              )}
+                              {isTarget && (
+                                <span style={{
+                                  fontSize: '0.62rem',
+                                  background: '#ec4899',
+                                  color: '#ffffff',
+                                  fontWeight: 800,
+                                  padding: '1px 5px',
+                                  borderRadius: '3px',
+                                  boxShadow: '0 0 6px rgba(236, 72, 153, 0.6)'
+                                }}>
+                                  🎯 {isAtm ? '(k)' : 'TARGET (k)'}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ padding: '0.45rem', borderLeft: '1px solid rgba(255,255,255,0.1)', fontWeight: 600, color: isAtm ? '#ffffff' : undefined, background: atmCellBg }}>
+                            ₹{Number(pe_ltp).toFixed(2)}
+                          </td>
+                          <td style={{ padding: '0.45rem', color: isAtm ? '#ffffff' : undefined, background: atmCellBg, fontWeight: isAtm ? 700 : undefined }}>
+                            {Number(pe_oi).toLocaleString()}
+                          </td>
+                          <td style={{ padding: '0.45rem', color: pe_oi_change >= 0 ? '#4ade80' : '#f87171', background: atmCellBg, fontWeight: isAtm ? 700 : undefined }}>
+                            {Number(pe_oi_change).toLocaleString()}
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })() : (
+                    <tr>
+                      <td colSpan={7} style={{ padding: '2rem', color: 'var(--text-muted)' }}>
+                        No strike matrix loaded for {analyzerSymbol}.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* INTERACTIVE TEARSHEET MODAL */}
       {selectedTearsheet && (
         <div style={{
@@ -7759,6 +10315,141 @@ export default function App() {
                   background: '#0a0f1e'
                 }}
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── ABOUT PLATFORM MODAL ─────────────────────────────────────────── */}
+      {showAboutModal && (
+        <div 
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            background: 'rgba(5, 8, 18, 0.85)',
+            backdropFilter: 'blur(10px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1.5rem'
+          }}
+          onClick={() => setShowAboutModal(false)}
+        >
+          <div 
+            style={{
+              background: '#0d1322',
+              border: '1px solid rgba(56, 189, 248, 0.3)',
+              borderRadius: '16px',
+              maxWidth: '860px',
+              width: '100%',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              padding: '1.8rem',
+              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.7), 0 0 30px rgba(56, 189, 248, 0.15)',
+              color: 'var(--text-main)',
+              position: 'relative'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '1rem', marginBottom: '1.2rem' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px', background: 'linear-gradient(135deg, #38bdf8, #818cf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                  📈 Elite Option Strategy Builder
+                </h2>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                  <span style={{ fontSize: '0.75rem', background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
+                    v2.5.0 Institutional Edition
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    NSE India Derivatives Analytics & Quantitative Spreads Engine
+                  </span>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowAboutModal(false)}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.06)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '6px',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  padding: '4px 10px',
+                  fontSize: '0.9rem',
+                  fontWeight: 700
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Core Literature & Methods */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: '#facc15', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  🏛️ Grounded in Quantitative Trading Literature
+                </h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '0.75rem' }}>
+                  <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '8px', padding: '0.75rem' }}>
+                    <strong style={{ color: '#38bdf8', fontSize: '0.85rem' }}>Anthony J. Saliba Framework (Bloomberg Press)</strong>
+                    <p style={{ margin: '0.3rem 0 0 0', fontSize: '0.76rem', color: '#94a3b8', lineHeight: 1.4 }}>
+                      Encodes Chapters 1–8: Covered-Writes, Box Spread Arbitrage Parity, Collars & Reverse-Collars with dynamic adjustment playbooks, Max Pain Straddles, Flies/Condors, and Volatility Ratio Backspreads.
+                    </p>
+                  </div>
+                  <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '8px', padding: '0.75rem' }}>
+                    <strong style={{ color: '#ec4899', fontSize: '0.85rem' }}>Sameer Dharaskar Option Chain Methodology</strong>
+                    <p style={{ margin: '0.3rem 0 0 0', fontSize: '0.76rem', color: '#94a3b8', lineHeight: 1.4 }}>
+                      Multi-timeframe Option Chain Analyzer tracking institutional positioning shifts, Volume Spurts, Net OI trends, and Strike Matrix accumulation.
+                    </p>
+                  </div>
+                  <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '8px', padding: '0.75rem' }}>
+                    <strong style={{ color: '#10b981', fontSize: '0.85rem' }}>Dr. Alexander Elder Impulse System</strong>
+                    <p style={{ margin: '0.3rem 0 0 0', fontSize: '0.76rem', color: '#94a3b8', lineHeight: 1.4 }}>
+                      Multi-indicator confluence combining EMA(13), MACD Histogram momentum, Welles Wilder’s ADX(14) ≥ 25, and Supertrend across Nifty universes.
+                    </p>
+                  </div>
+                  <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '8px', padding: '0.75rem' }}>
+                    <strong style={{ color: '#a855f7', fontSize: '0.85rem' }}>Mark Minervini VCP Screener & Lab</strong>
+                    <p style={{ margin: '0.3rem 0 0 0', fontSize: '0.76rem', color: '#94a3b8', lineHeight: 1.4 }}>
+                      8-stage Minervini Trend Template, Volatility Contraction Pattern (VCP) detection, regression slope validation, and automated tearsheet backtesting.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Real-Time Analytics Highlights */}
+              <div style={{ background: 'rgba(56, 189, 248, 0.04)', border: '1px solid rgba(56, 189, 248, 0.15)', borderRadius: '10px', padding: '0.85rem' }}>
+                <h4 style={{ margin: '0 0 0.4rem 0', fontSize: '0.88rem', color: '#38bdf8' }}>
+                  ⚡ Real-Time Trading Engines
+                </h4>
+                <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.78rem', color: '#cbd5e1', lineHeight: 1.5 }}>
+                  <li><strong>Near-ATM OI Tab (ATM ± 3 / ± 5 Strikes)</strong>: Instant Call vs Put resistance/support concentration, Near-ATM PCR, and Strike Micro-Matrix.</li>
+                  <li><strong>Interactive Greeks Payoff Profile</strong>: Dynamic Target Date & Spot Price Movement Sliders simulating time decay (θ) and volatility impact.</li>
+                  <li><strong>Futures Buildup Tracker</strong>: Real-time grouping into Long Buildup, Short Buildup, Long Unwinding, and Short Covering.</li>
+                  <li><strong>Live Kite Instrument Sync</strong>: Real-time contract lot sizes for 215+ NSE F&O assets.</li>
+                </ul>
+              </div>
+
+              {/* Architecture & Footer */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '0.8rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                <span>Backend: <strong>FastAPI (Port 8005)</strong> | Frontend: <strong>Vite + React (Port 5174)</strong></span>
+                <button
+                  onClick={() => setShowAboutModal(false)}
+                  style={{
+                    padding: '6px 16px',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    background: 'linear-gradient(135deg, #0284c7, #2563eb)',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         </div>
