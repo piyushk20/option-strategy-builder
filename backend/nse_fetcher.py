@@ -250,6 +250,7 @@ class NSEFetcher:
         return {
             "symbol": symbol,
             "underlying_price": underlying_price,
+            "future_price": underlying_price,
             "selected_expiry": selected_expiry,
             "expiry_dates": all_expiries,
             "pcr": pcr,
@@ -502,6 +503,7 @@ class NSEFetcher:
         return {
             "symbol": symbol,
             "underlying_price": spot,
+            "future_price": round(spot * 1.0015, 2),
             "selected_expiry": selected_expiry,
             "expiry_dates": expiry_dates,
             "pcr": pcr,

@@ -34,3 +34,5 @@ Workspaces/
 .tmp/
 scratch/
 test_*.py
+TradingView-API/
+graphify-out/cache/ast/

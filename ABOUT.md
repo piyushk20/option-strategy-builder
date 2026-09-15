@@ -23,11 +23,28 @@ The application natively encodes Saliba’s complete spreads curriculum across C
 - **Chapter 6: Calendar Time Spreads**: Term structure implied volatility, intermonth Jelly Roll parity, and early arrival syndrome management.
 - **Chapter 7 & 8: Ratio Spreads & Backspreads**: Front Ratios (1:2 / 2:3) for contratrend trades and Volatility Ratio Backspreads for asymmetric breakout explosions.
 
-### 2. Sameer Dharaskar — Option Chain Analysis Methodology
+### 2. Live Open = High / Open = Low (OHL) Momentum Engine (Powered by `jugaad-data`)
+- **Direct NSE Exchange Streaming**: Integrates `jugaad-data` directly tapping into NSE's `GetQuoteApi` / `getSymbolDerivativesData` endpoint.
+- **100% Authentic Live Data**: Fetches true tick-level `openPrice`, `highPrice`, `lowPrice`, `lastPrice`, `totalTradedVolume`, `openInterest`, `changeinOpenInterest`, and `underlyingValue`.
+- **True Mathematical Formulation**:
+  $$\text{Open = Low (Bullish)}: \frac{|Open - Low|}{Open} \le 0.25\% \quad \text{and} \quad LTP \ge Open$$
+  $$\text{Open = High (Bearish)}: \frac{|Open - High|}{Open} \le 0.25\% \quad \text{and} \quad LTP \le Open$$
+- **Institutional Spot-Option Confluence**: Automatically matches spot breakdowns (`Open = High`) with surging Put options (`Open = Low`), and spot breakouts (`Open = Low`) with surging Call options (`Open = Low`), tagging them with `🔥 Confluence`.
+- **Dual-Engine Interactive Candlestick Modal**:
+  - Native SVG/Canvas 25-candle intraday option engine with green/red bodies, wicks, volume bars, dashed Open price reference line, VWAP curve, and EMA-9 curve.
+  - Live TradingView widget integration (`tv.js`) for spot assets (`NSE:NIFTY`, `NSE:TITAN`, etc.).
+
+### 3. Quantsapp-Style Open Interest Visualizer
+- **Dual Layout Modes**:
+  - Horizontal Bar Visualizer (Quantsapp style) with side-by-side or stacked Call vs Put comparison.
+  - Classic Vertical OI distribution layout.
+- **Metrics**: Total OI, Net Change in OI, and PCR tracking across all active strike matrices.
+
+### 4. Sameer Dharaskar — Option Chain Analysis Methodology
 - **Option Chain Analyzer**: Multi-timeframe tracking of Net Open Interest shifts, Volume spurts, Strike Trend Matrices, and institutional positioning accumulation.
 - Real-time strike matrix with ATM auto-detection and color-coded contract activity.
 
-### 3. Dr. Alexander Elder — *Trading for a Living* & The Impulse System
+### 5. Dr. Alexander Elder — *Trading for a Living* & The Impulse System
 - **Elder Impulse Pro Scanner**: Multi-indicator technical confluence uniting:
   - 13-period Exponential Moving Average (EMA) — measures trend direction.
   - 12/26/9 Moving Average Convergence Divergence (MACD) Histogram — measures market momentum.
@@ -36,13 +53,13 @@ The application natively encodes Saliba’s complete spreads curriculum across C
 - Universes: Nifty 50, Nifty 200, Midcap 100, Smallcap 100.
 - Timeframes: 1 Hour, 4 Hours, 1 Day, 1 Week.
 
-### 4. Mark Minervini — *Trade Like a Stock Market Wizard*
+### 6. Mark Minervini — *Trade Like a Stock Market Wizard*
 - **Volatility Contraction Pattern (VCP) Screener**:
   - 8-stage Minervini Trend Template (200 SMA slope, 150 SMA, 50 SMA alignment, 52-week high proximity $\le 25\%$, 52-week low $\ge +30\%$).
   - Linear regression slope modeling for moving average validation.
   - Interactive Tearsheet & Checklist Drawer with backtesting logs.
 
-### 5. Institutional Momentum & Market Microstructure (Dhan & Zerodha)
+### 7. Institutional Momentum & Market Microstructure (Dhan & Zerodha)
 - **High Momentum 3-Step Checklist**:
   1. Exponential Moving Average Stack: $20 > 50 > 200\text{ EMA}$.
   2. Trend Strength: Wilder's $ADX(14) \ge 20$.
@@ -72,9 +89,9 @@ Located directly above the Option Chain:
 
 | Component | Technologies | Port | Description |
 | :--- | :--- | :--- | :--- |
-| **Backend** | Python 3.10+, FastAPI, Uvicorn, SciPy, NumPy | `8005` | Async API, Black-Scholes Greeks engine, live NSE scraping, Saliba recommendations |
-| **Frontend** | React 18, TypeScript, Vite, Recharts, Lucide-React | `5174` | Responsive dark-mode interface, custom SVG payoff charts, live HMR |
-| **Data Engine** | NSE India v3 API, Yahoo Finance, Zerodha Kite instruments | — | Auto-fallback resilient data ingestion with local caching |
+| **Backend** | Python 3.10+, FastAPI, Uvicorn, SciPy, NumPy, `jugaad-data` | `8005` | Async API, Black-Scholes Greeks engine, live NSE scraping, Saliba recommendations, OHL engine |
+| **Frontend** | React 18, TypeScript, Vite, Recharts, Lucide-React | `5174` | Responsive dark-mode interface, custom SVG payoff charts, live HMR, TradingView charts |
+| **Data Engine** | `jugaad-data`, NSE India v3 API, Yahoo Finance, Zerodha Kite instruments | — | Auto-fallback resilient data ingestion with local caching |
 
 ---
 

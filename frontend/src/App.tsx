@@ -33,6 +33,8 @@ import {
   Crosshair,
   Clock
 } from 'lucide-react';
+import { QuantsappOiChart } from './components/QuantsappOiChart';
+import { OhlScannerView } from './components/OhlScannerView';
 
 interface OptionLeg {
   id: string;
@@ -589,7 +591,7 @@ export default function App() {
   const [hoverY, setHoverY] = useState<number>(0);
 
   // Navigation
-  const [activeTab, setActiveTab] = useState<'workbench' | 'scanner' | 'breakout' | 'oi_spurts' | 'change_in_oi' | 'futures_buildup' | 'oi_graph' | 'high_momentum' | 'elder_impulse' | 'straddle_chart' | 'oi_crossover_scanner' | 'vcp' | 'backtest_lab' | 'analyzer'>('workbench');
+  const [activeTab, setActiveTab] = useState<'workbench' | 'scanner' | 'breakout' | 'oi_spurts' | 'change_in_oi' | 'futures_buildup' | 'oi_graph' | 'high_momentum' | 'elder_impulse' | 'straddle_chart' | 'oi_crossover_scanner' | 'vcp' | 'backtest_lab' | 'analyzer' | 'ohl_scanner'>('workbench');
 
   // Option Chain Near-ATM Open Interest Tab States
   const [chainTab, setChainTab] = useState<'both' | 'near_atm' | 'full_chain'>('both');
@@ -1135,6 +1137,7 @@ export default function App() {
   const [oiGraphMode, setOiGraphMode] = useState<'total' | 'change'>('total');
   const [oiGraphRange, setOiGraphRange] = useState<number>(10);
   const [oiGraphHoveredStrike, setOiGraphHoveredStrike] = useState<number | null>(null);
+  const [oiGraphLayout, setOiGraphLayout] = useState<'quantsapp' | 'vertical'>('quantsapp');
 
   // Straddle Chart States
   const [straddleSymbol, setStraddleSymbol] = useState<string>('NIFTY');
@@ -2645,6 +2648,20 @@ export default function App() {
             📊 OI Bar Graph
           </button>
           <button 
+            onClick={() => setActiveTab('ohl_scanner')}
+            className={`tab-btn ${activeTab === 'ohl_scanner' ? 'active' : ''}`}
+            style={{
+              flex: '1 1 auto',
+              padding: '0.35rem 0.65rem',
+              fontSize: '0.8rem',
+              fontWeight: 700,
+              background: activeTab === 'ohl_scanner' ? 'linear-gradient(90deg, #f59e0b, #ea580c)' : undefined,
+              boxShadow: activeTab === 'ohl_scanner' ? '0 0 10px rgba(245, 158, 11, 0.4)' : undefined
+            }}
+          >
+            🎯 Open=High/Low
+          </button>
+          <button 
             onClick={() => setActiveTab('straddle_chart')}
             className={`tab-btn ${activeTab === 'straddle_chart' ? 'active' : ''}`}
             style={{
@@ -3222,6 +3239,26 @@ export default function App() {
               </h3>
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem', fontWeight: 600 }}>Visualizer Layout</label>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button
+                      className={oiGraphLayout === 'quantsapp' ? 'primary' : 'outline'}
+                      onClick={() => setOiGraphLayout('quantsapp')}
+                      style={{ flex: 1, padding: '0.45rem', fontSize: '0.75rem', fontWeight: 700 }}
+                    >
+                      Quantsapp (H)
+                    </button>
+                    <button
+                      className={oiGraphLayout === 'vertical' ? 'primary' : 'outline'}
+                      onClick={() => setOiGraphLayout('vertical')}
+                      style={{ flex: 1, padding: '0.45rem', fontSize: '0.75rem' }}
+                    >
+                      Classic (V)
+                    </button>
+                  </div>
+                </div>
+
                 <div>
                   <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem', fontWeight: 600 }}>Strike Range (Around ATM)</label>
                   <select
@@ -6679,7 +6716,7 @@ export default function App() {
             {/* Row 1: Index Quick Tabs + Symbol & Expiry Selector */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-                {['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'].map((idxSym) => (
+                {['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX'].map((idxSym) => (
                   <button
                     key={idxSym}
                     className={symbol === idxSym ? 'primary' : 'outline'}
@@ -6712,6 +6749,42 @@ export default function App() {
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                {/* Visualizer Layout Switcher */}
+                <div style={{ display: 'flex', background: '#111827', padding: '2px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                  <button
+                    onClick={() => setOiGraphLayout('quantsapp')}
+                    style={{
+                      padding: '0.3rem 0.75rem',
+                      borderRadius: '6px',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      border: 'none',
+                      background: oiGraphLayout === 'quantsapp' ? '#f59e0b' : 'transparent',
+                      color: oiGraphLayout === 'quantsapp' ? '#0f172a' : '#94a3b8',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    📊 Quantsapp (H)
+                  </button>
+                  <button
+                    onClick={() => setOiGraphLayout('vertical')}
+                    style={{
+                      padding: '0.3rem 0.75rem',
+                      borderRadius: '6px',
+                      fontSize: '0.78rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      border: 'none',
+                      background: oiGraphLayout === 'vertical' ? '#3b82f6' : 'transparent',
+                      color: oiGraphLayout === 'vertical' ? '#ffffff' : '#94a3b8',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    Classic (V)
+                  </button>
+                </div>
+
                 {optionChain?.expiry_dates && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>EXPIRY:</span>
@@ -6820,7 +6893,16 @@ export default function App() {
             </div>
           )}
 
-          {!chainLoading && !error && optionChain && (() => {
+          {!chainLoading && !error && optionChain && (
+            oiGraphLayout === 'quantsapp' ? (
+              <QuantsappOiChart
+                optionChain={optionChain}
+                symbol={symbol}
+                lotSize={getLotSize(symbol)}
+                onRefresh={() => fetchOptionChain(symbol, selectedExpiry)}
+                loading={chainLoading}
+              />
+            ) : (() => {
             const allStrikes = optionChain.strikes || [];
             if (allStrikes.length === 0) return null;
 
@@ -7238,8 +7320,35 @@ export default function App() {
 
               </div>
             );
-          })()}
+          })())}
 
+        </main>
+      )}
+
+      {activeTab === 'ohl_scanner' && (
+        <main className="full-width-section" style={{ width: '100%', gridColumn: '1 / -1', display: 'flex', flexDirection: 'column' }}>
+          <OhlScannerView
+            onSelectSymbolForChain={(sym) => {
+              setSymbol(sym);
+              setSelectedExpiry('');
+              fetchOptionChain(sym, '');
+              setActiveTab('oi_graph');
+            }}
+            onAddLegToWorkbench={(leg) => {
+              setLegs(prev => [
+                ...prev,
+                {
+                  id: `ohl-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+                  type: leg.type,
+                  action: leg.action,
+                  strike: leg.strike,
+                  premium: leg.premium,
+                  quantity: leg.quantity
+                }
+              ]);
+              setActiveTab('workbench');
+            }}
+          />
         </main>
       )}
 
@@ -9097,7 +9206,7 @@ export default function App() {
 
       {/* ─── OPTION CHAIN ANALYZER TAB (SAMEER DHARASKAR METHODOLOGY) ─── */}
       {activeTab === 'analyzer' && (
-        <main className="analyzer-tab" style={{ padding: '1.2rem', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+        <main className="analyzer-tab full-width-section" style={{ padding: '1.2rem', display: 'flex', flexDirection: 'column', gap: '1.2rem', width: '100%', gridColumn: '1 / -1' }}>
           {/* HEADER & CONTROL RIBBON */}
           <div className="card" style={{ padding: '1.2rem', background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.9))', border: '1px solid rgba(236, 72, 153, 0.3)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.2rem' }}>
@@ -10360,7 +10469,7 @@ export default function App() {
                 </h2>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
                   <span style={{ fontSize: '0.75rem', background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
-                    v2.5.0 Institutional Edition
+                    v2.6.0 Institutional Edition
                   </span>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                     NSE India Derivatives Analytics & Quantitative Spreads Engine
@@ -10398,6 +10507,12 @@ export default function App() {
                     </p>
                   </div>
                   <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '8px', padding: '0.75rem' }}>
+                    <strong style={{ color: '#f59e0b', fontSize: '0.85rem' }}>Live Open=High / Open=Low (jugaad-data Engine)</strong>
+                    <p style={{ margin: '0.3rem 0 0 0', fontSize: '0.76rem', color: '#94a3b8', lineHeight: 1.4 }}>
+                      Real-time institutional momentum streaming directly from NSE via `jugaad-data`. Authentic tick-level Open/High/Low/LTP option analytics, spot confluence matching, and dual candlestick engines.
+                    </p>
+                  </div>
+                  <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '8px', padding: '0.75rem' }}>
                     <strong style={{ color: '#ec4899', fontSize: '0.85rem' }}>Sameer Dharaskar Option Chain Methodology</strong>
                     <p style={{ margin: '0.3rem 0 0 0', fontSize: '0.76rem', color: '#94a3b8', lineHeight: 1.4 }}>
                       Multi-timeframe Option Chain Analyzer tracking institutional positioning shifts, Volume Spurts, Net OI trends, and Strike Matrix accumulation.
@@ -10409,12 +10524,6 @@ export default function App() {
                       Multi-indicator confluence combining EMA(13), MACD Histogram momentum, Welles Wilder’s ADX(14) ≥ 25, and Supertrend across Nifty universes.
                     </p>
                   </div>
-                  <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '8px', padding: '0.75rem' }}>
-                    <strong style={{ color: '#a855f7', fontSize: '0.85rem' }}>Mark Minervini VCP Screener & Lab</strong>
-                    <p style={{ margin: '0.3rem 0 0 0', fontSize: '0.76rem', color: '#94a3b8', lineHeight: 1.4 }}>
-                      8-stage Minervini Trend Template, Volatility Contraction Pattern (VCP) detection, regression slope validation, and automated tearsheet backtesting.
-                    </p>
-                  </div>
                 </div>
               </div>
 
@@ -10424,10 +10533,11 @@ export default function App() {
                   ⚡ Real-Time Trading Engines
                 </h4>
                 <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.78rem', color: '#cbd5e1', lineHeight: 1.5 }}>
+                  <li><strong>Live Open=High & Open=Low Scanner</strong>: 100% genuine live option & spot momentum streaming directly from NSE India via `jugaad-data`.</li>
+                  <li><strong>Dual-Engine Candlestick Modal</strong>: Interactive 25-candle option series with Open price line, VWAP, EMA-9, and embedded TradingView spot widget.</li>
+                  <li><strong>Quantsapp-Style OI Bar Visualizer</strong>: Horizontal and vertical Call vs Put Open Interest distribution bars.</li>
                   <li><strong>Near-ATM OI Tab (ATM ± 3 / ± 5 Strikes)</strong>: Instant Call vs Put resistance/support concentration, Near-ATM PCR, and Strike Micro-Matrix.</li>
                   <li><strong>Interactive Greeks Payoff Profile</strong>: Dynamic Target Date & Spot Price Movement Sliders simulating time decay (θ) and volatility impact.</li>
-                  <li><strong>Futures Buildup Tracker</strong>: Real-time grouping into Long Buildup, Short Buildup, Long Unwinding, and Short Covering.</li>
-                  <li><strong>Live Kite Instrument Sync</strong>: Real-time contract lot sizes for 215+ NSE F&O assets.</li>
                 </ul>
               </div>
 

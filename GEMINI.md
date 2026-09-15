@@ -81,18 +81,24 @@ Be pragmatic. Be reliable. Self-anneal.
 - **Workspace Path**: `c:\Users\HP\optionstartegybuilder`
 - **Backend Port**: 8005
 - **Frontend Port**: 5174
-- **Last Verified Functional State**: 2026-07-27
-- **Tested & Supported Assets**: 23 F&O assets (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, RELIANCE, TCS, INFY, HDFCBANK, ICICIBANK, SBIN, ITC, BHARTIARTL, LT, AXISBANK, KOTAKBANK, TATAMOTORS, TATASTEEL, BAJFINANCE, MARUTI, SUNPHARMA, HCLTECH, M&M, WIPRO)
+- **Last Verified Functional State**: 2026-09-15
+- **Tested & Supported Assets**: 23 F&O assets (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, SENSEX, RELIANCE, TCS, INFY, HDFCBANK, ICICIBANK, SBIN, ITC, BHARTIARTL, LT, AXISBANK, KOTAKBANK, TATAMOTORS, TATASTEEL, BAJFINANCE, MARUTI, SUNPHARMA, HCLTECH, M&M, WIPRO)
 - **Active Endpoints**:
   - GET `http://127.0.0.1:8005/health`
   - GET `http://127.0.0.1:8005/api/nse/chain?symbol={symbol}&expiry={expiry}`
   - GET `http://127.0.0.1:8005/api/nse/oi-spurts`
   - GET `http://127.0.0.1:8005/api/nse/change-in-oi`
   - GET `http://127.0.0.1:8005/api/nse/futures-buildup`
+  - GET `http://127.0.0.1:8005/api/ohl/results?universe={universe}&signal={signal}`
+  - GET `http://127.0.0.1:8005/api/ohl/status`
+  - POST `http://127.0.0.1:8005/api/ohl/scan`
   - POST `http://127.0.0.1:8005/api/nse/recommend`
   - POST `http://127.0.0.1:8005/api/payoff`
+- **Active Tabs & Features**:
+  - 📊 OI Bar Graph: Quantsapp-style Horizontal Bar Visualizer (Total OI / Change in OI) & Classic Vertical layout
+  - 🎯 Open=High/Low: Live OHL institutional momentum scanner with full-width data table and 1-click strategy builder export
 - **Frontend Proxy Configuration**: configured in `frontend/vite.config.ts` targeting `http://127.0.0.1:8005`
 - **Exact Launch Commands**:
-  - Backend: `python backend/main.py`
+  - Backend: `python backend/main.py` (Port 8005)
   - Frontend: `npm run dev` (starts Dev Server on port 5174)
 

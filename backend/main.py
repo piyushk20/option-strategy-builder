@@ -23,6 +23,7 @@ from services.oi_crossover_service import oi_crossover_service
 from services.vcp_service import vcp_scanner_service
 from services.backtest_service import backtest_service
 from services.analyzer_service import analyzer_service
+from services.ohl_service import ohl_service, ohl_state
 
 
 app = FastAPI(title="Option Strategy Builder API", version="1.0.0")
@@ -582,6 +583,70 @@ def dump_analyzer_chain_api(
     content = analyzer_service.dump_full_chain_csv(symbol=symbol, expiry=expiry)
     headers = {"Content-Disposition": f"attachment; filename={symbol.upper()}_option_chain_dump.csv"}
     return Response(content=content, media_type="text/csv", headers=headers)
+
+
+# ---------------------------------------------------------------------------
+# Open = High / Open = Low (OHL) Scanner Endpoints
+# ---------------------------------------------------------------------------
+
+class OHLScanRequest(BaseModel):
+    universe: str = Field(default="leaders", description="'indices' | 'leaders' | 'all'")
+    tolerance_pct: float = Field(default=0.001, description="Tolerance percentage (e.g. 0.001 = 0.1%)")
+
+
+@app.get("/api/ohl/results")
+def get_ohl_results_api(
+    universe: str = "all",
+    signal: str = "all",
+    option_type: str = "all",
+    confluence_only: bool = False,
+    search: str = ""
+):
+    return ohl_service.get_results(
+        universe_filter=universe,
+        signal_filter=signal,
+        option_filter=option_type,
+        confluence_only=confluence_only,
+        search_query=search
+    )
+
+
+@app.get("/api/ohl/status")
+def get_ohl_status_api():
+    with ohl_state.lock:
+        return {
+            "status": ohl_state.status,
+            "progress_pct": ohl_state.progress_pct,
+            "last_scanned_at": ohl_state.last_scanned_at,
+            "total_scanned": ohl_state.total_scanned,
+            "open_low_count": ohl_state.open_low_count,
+            "open_high_count": ohl_state.open_high_count,
+            "confluence_count": ohl_state.confluence_count
+        }
+
+
+@app.post("/api/ohl/scan")
+def run_ohl_scan_api(req: OHLScanRequest):
+    started = ohl_service.run_scan_async(universe=req.universe, tolerance_pct=req.tolerance_pct)
+    if not started:
+        return {"status": "already_running", "message": "OHL scan is already running in background."}
+    return {"status": "started", "message": f"OHL scan started for universe: {req.universe}"}
+
+
+@app.get("/api/ohl/candles")
+def get_ohl_strike_candles_api(
+    symbol: str,
+    strike: Optional[float] = None,
+    option_type: Optional[str] = None,
+    timeframe: str = "15"
+):
+    return ohl_service.get_strike_candles(
+        symbol=symbol,
+        strike=strike,
+        option_type=option_type,
+        timeframe=timeframe
+    )
+
 
 
 if __name__ == "__main__":
