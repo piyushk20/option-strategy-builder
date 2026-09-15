@@ -11,6 +11,18 @@ An institutional-grade, full-stack quantitative options strategy builder and der
 
 ---
 
+## 📸 Platform Previews
+
+| **Option Strategy Workbench & Payoff** | **Quantsapp-Style OI Bar Visualizer** |
+|:---:|:---:|
+| ![Strategy Builder](screenshots/01_strategy_builder.png) | ![Quantsapp OI Visualizer](screenshots/02_quantsapp_oi_bars.png) |
+
+| **Live Open=High / Open=Low Momentum Scanner** | **Dual Candlestick & Technical Modal** |
+|:---:|:---:|
+| ![OHL Scanner Table](screenshots/03_ohl_momentum_scanner.png) | ![Strike Candlestick Chart](screenshots/04_strike_candlestick_chart.png) |
+
+---
+
 ## 🚀 Key Features
 
 ### 1. 🎯 Live Open = High / Open = Low (OHL) Scanner (Powered by `jugaad-data`)

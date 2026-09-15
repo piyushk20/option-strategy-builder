@@ -4205,8 +4205,8 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1789486254.15393,
-    "ast_hash": "1f9fcce0b3ca4d343b62e0be3247874b",
+    "mtime": 1789488125.9395962,
+    "ast_hash": "eea0423031fbf2364b708f00229a1228",
     "semantic_hash": ""
   },
   "agency-agents/CONTRIBUTING.md": {
@@ -8285,8 +8285,8 @@
     "semantic_hash": ""
   },
   "screenshot.png": {
-    "mtime": 1783088109.2335136,
-    "ast_hash": "b4bf9567fe1e439b32d0948d3801917a",
+    "mtime": 1789487817.1643424,
+    "ast_hash": "07072f2fb3fe26bcd77417a5e99d5190",
     "semantic_hash": ""
   },
   "claude-mem/docs/public/claude-mem-logo-for-dark-mode.webp": {
@@ -8619,221 +8619,6 @@
     "ast_hash": "84de69efd46ab0b8430393bd4188f8f2",
     "semantic_hash": ""
   },
-  "TradingView-API/.eslintrc.js": {
-    "mtime": 1789476675.7512734,
-    "ast_hash": "11bc5925102da0d62678b8e71d1a5c57",
-    "semantic_hash": ""
-  },
-  "TradingView-API/examples/AllPrivateIndicators.js": {
-    "mtime": 1789476675.7544806,
-    "ast_hash": "94f1197f0e5a03a8485f8d2dc8b08db9",
-    "semantic_hash": ""
-  },
-  "TradingView-API/examples/BuiltInIndicator.js": {
-    "mtime": 1789476675.7544806,
-    "ast_hash": "c3059d15acaa12cf721ad10189ace1cb",
-    "semantic_hash": ""
-  },
-  "TradingView-API/examples/CustomChartType.js": {
-    "mtime": 1789476675.7550063,
-    "ast_hash": "b45f5d1a1083c4a1ffe0e5717ac98439",
-    "semantic_hash": ""
-  },
-  "TradingView-API/examples/CustomTimeframe.js": {
-    "mtime": 1789476675.7550063,
-    "ast_hash": "e1202da11826bedcd9a8bf41ca164b31",
-    "semantic_hash": ""
-  },
-  "TradingView-API/examples/Errors.js": {
-    "mtime": 1789476675.7555597,
-    "ast_hash": "b4c857ad5eca8788b899025d55237d56",
-    "semantic_hash": ""
-  },
-  "TradingView-API/examples/FakeReplayMode.js": {
-    "mtime": 1789476675.7555597,
-    "ast_hash": "403c5b0dea088209efec177f0d3be944",
-    "semantic_hash": ""
-  },
-  "TradingView-API/examples/FromToData.js": {
-    "mtime": 1789476675.7555597,
-    "ast_hash": "aa45be04d48dd9f063b1cc0ce83ed333",
-    "semantic_hash": ""
-  },
-  "TradingView-API/examples/GetDrawings.js": {
-    "mtime": 1789476675.7561803,
-    "ast_hash": "ba891a7ae4594a8ce9811891094cbb8b",
-    "semantic_hash": ""
-  },
-  "TradingView-API/examples/GraphicIndicator.js": {
-    "mtime": 1789476675.7561803,
-    "ast_hash": "1abdd15e1bf2c11acfa448d9608bf379",
-    "semantic_hash": ""
-  },
-  "TradingView-API/examples/MultipleSyncFetch.js": {
-    "mtime": 1789476675.7567976,
-    "ast_hash": "2cd03174f33d0a8e96e944f280487233",
-    "semantic_hash": ""
-  },
-  "TradingView-API/examples/PinePermManage.js": {
-    "mtime": 1789476675.7567976,
-    "ast_hash": "6896fbdf34be64fa6e93ac440a27ce3f",
-    "semantic_hash": ""
-  },
-  "TradingView-API/examples/ReplayMode.js": {
-    "mtime": 1789476675.757352,
-    "ast_hash": "dc9571a14f6fcf9d241337309a8a0527",
-    "semantic_hash": ""
-  },
-  "TradingView-API/examples/Search.js": {
-    "mtime": 1789476675.757352,
-    "ast_hash": "9080c3cbfd3b52b3baa5a1d06f17b1dc",
-    "semantic_hash": ""
-  },
-  "TradingView-API/examples/SimpleChart.js": {
-    "mtime": 1789476675.757352,
-    "ast_hash": "82487e49de02b8d43c14e11960e0ee3a",
-    "semantic_hash": ""
-  },
-  "TradingView-API/examples/UserLogin.js": {
-    "mtime": 1789476675.757879,
-    "ast_hash": "a93066cfcae2c6a5a0fc20a49ba3ebfb",
-    "semantic_hash": ""
-  },
-  "TradingView-API/main.js": {
-    "mtime": 1789476675.757879,
-    "ast_hash": "a1c947df56b4002de25ac0a43d753ecd",
-    "semantic_hash": ""
-  },
-  "TradingView-API/package.json": {
-    "mtime": 1789476675.759984,
-    "ast_hash": "b5e459744a2a3f96e42f805c30c4d9cf",
-    "semantic_hash": ""
-  },
-  "TradingView-API/src/chart/graphicParser.js": {
-    "mtime": 1789476675.7605095,
-    "ast_hash": "620889a93da91282dceade71cec79b82",
-    "semantic_hash": ""
-  },
-  "TradingView-API/src/chart/session.js": {
-    "mtime": 1789476675.761601,
-    "ast_hash": "c0804f921edf94314c2ef30ad7ca415f",
-    "semantic_hash": ""
-  },
-  "TradingView-API/src/chart/study.js": {
-    "mtime": 1789476675.7621038,
-    "ast_hash": "d5d964faecff5e9d6ed2a55ba429018e",
-    "semantic_hash": ""
-  },
-  "TradingView-API/src/classes/BuiltInIndicator.js": {
-    "mtime": 1789476675.7626362,
-    "ast_hash": "1995f7785edc16ccf5ad15c39d453852",
-    "semantic_hash": ""
-  },
-  "TradingView-API/src/classes/PineIndicator.js": {
-    "mtime": 1789476675.7626362,
-    "ast_hash": "3042bdc77ab27623597829642276a3b9",
-    "semantic_hash": ""
-  },
-  "TradingView-API/src/classes/PinePermManager.js": {
-    "mtime": 1789476675.763157,
-    "ast_hash": "7a1b4fa5d735d0795fb108ca41e69d79",
-    "semantic_hash": ""
-  },
-  "TradingView-API/src/client.js": {
-    "mtime": 1789476675.763157,
-    "ast_hash": "22d68362eee7ab6722ab6e07b742d014",
-    "semantic_hash": ""
-  },
-  "TradingView-API/src/miscRequests.js": {
-    "mtime": 1789476675.7636914,
-    "ast_hash": "5dc2c48b3a077e28234fa81025950e6a",
-    "semantic_hash": ""
-  },
-  "TradingView-API/src/protocol.js": {
-    "mtime": 1789476675.7642217,
-    "ast_hash": "c8b0c8d72f6ade0a79b0dfb9f06cfc93",
-    "semantic_hash": ""
-  },
-  "TradingView-API/src/quote/market.js": {
-    "mtime": 1789476675.7647471,
-    "ast_hash": "04e0921543da04c4e99dd6860362b13a",
-    "semantic_hash": ""
-  },
-  "TradingView-API/src/quote/session.js": {
-    "mtime": 1789476675.7647471,
-    "ast_hash": "595cd189a6307bcab75357d01d75a5d5",
-    "semantic_hash": ""
-  },
-  "TradingView-API/src/types.js": {
-    "mtime": 1789476675.7647471,
-    "ast_hash": "a0b5b606b40315bd5994b159cc58946b",
-    "semantic_hash": ""
-  },
-  "TradingView-API/src/utils.js": {
-    "mtime": 1789476675.7652748,
-    "ast_hash": "663cff168cd70d4affc6ddf0db9c5e12",
-    "semantic_hash": ""
-  },
-  "TradingView-API/tests/allErrors.test.ts": {
-    "mtime": 1789476675.7658112,
-    "ast_hash": "62c1e961f335091afdb51a29667bab38",
-    "semantic_hash": ""
-  },
-  "TradingView-API/tests/authenticated.test.ts": {
-    "mtime": 1789476675.76634,
-    "ast_hash": "a35932836c0ec18d7c264287630ec6da",
-    "semantic_hash": ""
-  },
-  "TradingView-API/tests/builtInIndicator.test.ts": {
-    "mtime": 1789476675.76634,
-    "ast_hash": "67b3883c5067ec1fca42cc87a8966369",
-    "semantic_hash": ""
-  },
-  "TradingView-API/tests/customChartTypes.test.ts": {
-    "mtime": 1789476675.7668674,
-    "ast_hash": "e327fb760969cd5a1a4b91292b925327",
-    "semantic_hash": ""
-  },
-  "TradingView-API/tests/getUser-redirect.test.ts": {
-    "mtime": 1789476675.7668674,
-    "ast_hash": "e13bc8df1159591fc764e109424bec8f",
-    "semantic_hash": ""
-  },
-  "TradingView-API/tests/indicators.test.ts": {
-    "mtime": 1789476675.767426,
-    "ast_hash": "1b5efddbb510c9b36b3051616428a052",
-    "semantic_hash": ""
-  },
-  "TradingView-API/tests/quoteSession.test.ts": {
-    "mtime": 1789476675.767426,
-    "ast_hash": "44d8e7e43735f93baf74dca7fd75a6c2",
-    "semantic_hash": ""
-  },
-  "TradingView-API/tests/replayMode.test.ts": {
-    "mtime": 1789476675.7679574,
-    "ast_hash": "c957f8eb92e00ebc24d519b8e7114cac",
-    "semantic_hash": ""
-  },
-  "TradingView-API/tests/search.test.ts": {
-    "mtime": 1789476675.7679574,
-    "ast_hash": "b8fa5d8741cb788beed07a824a90cb40",
-    "semantic_hash": ""
-  },
-  "TradingView-API/tests/simpleChart.test.ts": {
-    "mtime": 1789476675.7679574,
-    "ast_hash": "2ce77d1fafeefd3200681052318d9c4b",
-    "semantic_hash": ""
-  },
-  "TradingView-API/tests/utils.ts": {
-    "mtime": 1789476675.7684631,
-    "ast_hash": "32b210d59064c4a77bbac62a251c191d",
-    "semantic_hash": ""
-  },
-  "TradingView-API/vite.config.js": {
-    "mtime": 1789476675.7684631,
-    "ast_hash": "3ba91d7dd05e9a875e9a75d85eb5a360",
-    "semantic_hash": ""
-  },
   "backend/audit_straddle.py": {
     "mtime": 1786626182.3125553,
     "ast_hash": "168fd960ffc5e5bee481c70c3f530884",
@@ -9075,38 +8860,8 @@
     "semantic_hash": ""
   },
   "ABOUT.md": {
-    "mtime": 1789486217.3136487,
-    "ast_hash": "4c0c37132df5f45ad7c58fcbdc0af966",
-    "semantic_hash": ""
-  },
-  "TradingView-API/.github/FUNDING.yml": {
-    "mtime": 1789476675.7518044,
-    "ast_hash": "d3b98a53cd20d79444def38abc3df46b",
-    "semantic_hash": ""
-  },
-  "TradingView-API/.github/ISSUE_TEMPLATE/bug_report.md": {
-    "mtime": 1789476675.7523558,
-    "ast_hash": "dd8f0d5c215143a55dc136862a7c2377",
-    "semantic_hash": ""
-  },
-  "TradingView-API/.github/ISSUE_TEMPLATE/feature_request.md": {
-    "mtime": 1789476675.752883,
-    "ast_hash": "0d76382967079dad49fc403a1fd16e8b",
-    "semantic_hash": ""
-  },
-  "TradingView-API/.github/workflows/tests.yml": {
-    "mtime": 1789476675.752883,
-    "ast_hash": "a1bcd6cc651f2cd52091c1d70a008157",
-    "semantic_hash": ""
-  },
-  "TradingView-API/README.md": {
-    "mtime": 1789476675.7534082,
-    "ast_hash": "b55c30e5dfeb145ee0c91de43955b12e",
-    "semantic_hash": ""
-  },
-  "TradingView-API/docs/DOCS.md": {
-    "mtime": 1789476675.7539513,
-    "ast_hash": "673186527f9b599428244a44c90788f0",
+    "mtime": 1789488172.0634735,
+    "ast_hash": "35755c8a2704dac6a2fe681dd90c699d",
     "semantic_hash": ""
   },
   "optionspread/SKILL.md": {
@@ -9177,6 +8932,26 @@
   "requirements_backtest.txt": {
     "mtime": 1788623203.4617603,
     "ast_hash": "ee32c3ed125df5b4788ab64747960bd5",
+    "semantic_hash": ""
+  },
+  "screenshots/01_strategy_builder.png": {
+    "mtime": 1789487817.1643424,
+    "ast_hash": "07072f2fb3fe26bcd77417a5e99d5190",
+    "semantic_hash": ""
+  },
+  "screenshots/02_quantsapp_oi_bars.png": {
+    "mtime": 1789487869.8180003,
+    "ast_hash": "4059e6a8aec423aa7ebbfa5e5c48848a",
+    "semantic_hash": ""
+  },
+  "screenshots/03_ohl_momentum_scanner.png": {
+    "mtime": 1789487921.9387918,
+    "ast_hash": "cad1474d8509d0a3f5cc3710d0e9bea9",
+    "semantic_hash": ""
+  },
+  "screenshots/04_strike_candlestick_chart.png": {
+    "mtime": 1789487987.5500417,
+    "ast_hash": "b07f61a30c24c5030dace45a68b1089f",
     "semantic_hash": ""
   }
 }

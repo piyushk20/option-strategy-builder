@@ -34,11 +34,20 @@ The application natively encodes Saliba’s complete spreads curriculum across C
   - Native SVG/Canvas 25-candle intraday option engine with green/red bodies, wicks, volume bars, dashed Open price reference line, VWAP curve, and EMA-9 curve.
   - Live TradingView widget integration (`tv.js`) for spot assets (`NSE:NIFTY`, `NSE:TITAN`, etc.).
 
+![OHL Live Scanner Table](screenshots/03_ohl_momentum_scanner.png)
+*Figure: Live Open=High and Open=Low Scanner Table with Confluence Signals and Instant Chart Launch.*
+
+![Strike Candlestick Modal](screenshots/04_strike_candlestick_chart.png)
+*Figure: Intraday Candlestick Price Action Modal with VWAP, EMA-9, and Volume Profile.*
+
 ### 3. Quantsapp-Style Open Interest Visualizer
 - **Dual Layout Modes**:
   - Horizontal Bar Visualizer (Quantsapp style) with side-by-side or stacked Call vs Put comparison.
   - Classic Vertical OI distribution layout.
 - **Metrics**: Total OI, Net Change in OI, and PCR tracking across all active strike matrices.
+
+![Quantsapp Horizontal OI Bars](screenshots/02_quantsapp_oi_bars.png)
+*Figure: Quantsapp-Style Call vs Put Open Interest and Change in OI Visualizer.*
 
 ### 4. Sameer Dharaskar — Option Chain Analysis Methodology
 - **Option Chain Analyzer**: Multi-timeframe tracking of Net Open Interest shifts, Volume spurts, Strike Trend Matrices, and institutional positioning accumulation.
